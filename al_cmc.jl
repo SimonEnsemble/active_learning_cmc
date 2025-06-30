@@ -7,7 +7,7 @@ using InteractiveUtils
 # ╔═╡ cd47d8d0-5513-11f0-02cf-23409fc28fbf
 begin
 	import Pkg; Pkg.activate("cmc")
-	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV
+	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase
 end
 
 # ╔═╡ 0801bc21-de7c-4470-ae89-8725d90812e9
@@ -186,6 +186,22 @@ end
 # ╔═╡ 7ad08f7c-ce02-4685-9591-27ba3a42ae52
 data
 
+# ╔═╡ 192b5353-c0d5-457a-bf59-579709d8f2ec
+function entropy(xs::Vector{Float64}; edges=0.0:0.1:3.0)
+	hist = fit(Histogram, xs, edges)
+	probs = StatsBase.normalize(hist, mode=:probability)
+	return sum(- pᵢ * log(pᵢ) for pᵢ in probs.weights if pᵢ > 0.0)
+end
+
+# ╔═╡ eeea9a0d-62f2-4e95-a835-c04ae9b59175
+entropy(chain[:, "c★"])
+
+# ╔═╡ 43aa0dfb-d33b-474d-a72f-f53d5cec1070
+chain
+
+# ╔═╡ f0b700bd-0eac-4f7b-9570-b9c1c7c51b9d
+entropy(prob)
+
 # ╔═╡ cbb41a00-7c57-4f7c-b385-3cda0657fb4f
 α_ig(1.0, data, chain)
 
@@ -207,4 +223,8 @@ data
 # ╠═06cf608e-782e-4c67-acb2-3aead3642704
 # ╠═f1ec7091-d47e-475d-885a-fcc96ceab663
 # ╠═7ad08f7c-ce02-4685-9591-27ba3a42ae52
+# ╠═192b5353-c0d5-457a-bf59-579709d8f2ec
+# ╠═eeea9a0d-62f2-4e95-a835-c04ae9b59175
+# ╠═43aa0dfb-d33b-474d-a72f-f53d5cec1070
+# ╠═f0b700bd-0eac-4f7b-9570-b9c1c7c51b9d
 # ╠═cbb41a00-7c57-4f7c-b385-3cda0657fb4f
