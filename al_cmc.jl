@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.11
+# v0.20.5
 
 using Markdown
 using InteractiveUtils
@@ -49,7 +49,7 @@ begin
 		return data
 	end
 	
-	data = read_data(2)[[2, 12, 18], :]
+	data = read_data(2)[[1, 12, 18], :]
 end
 
 # ╔═╡ 874cc30e-0d7d-4a82-a523-c0caa9da4a59
@@ -175,6 +175,9 @@ viz(data, posterior_samples)
 # ╔═╡ 64ebafed-7692-4fa1-bbed-fc2cde90af6b
 md"# acquisition"
 
+# ╔═╡ a5eac5cf-a787-4a9a-b420-8d42026e3325
+chain
+
 # ╔═╡ 7ad08f7c-ce02-4685-9591-27ba3a42ae52
 data
 
@@ -198,7 +201,7 @@ function entropy(xs::Vector{Float64})
 		end
 	end
 	
-	S = hquadrature(S_integrand, xmin, xmax)[1]
+	S = hquadrature(S_integrand, xmin, xmax, reltol=1e-4)[1]
 
 	return S
 end
@@ -209,8 +212,7 @@ function α_ig(
 	n_samples::Int=100, n_MC_samples::Int=100
 )
 	Logging.disable_logging(Logging.Info)  # Disables info-level messages
-	cmcs_new = zeros(n_samples)
-
+	S_news = zeros(n_samples)
 	initial_state = Dict(θ => mean(chain[:, θ]) for θ in params)
 	for s = 1:n_samples
 		#=
@@ -237,22 +239,29 @@ function α_ig(
 		update posterior with fantasized data point
 		=#
 		new_model = cmc_model(new_data)
+		n_chains = 4
 		new_chain = DataFrame(
 			sample(
 				new_model, NUTS(), MCMCThreads(), 
-				n_MC_samples, 1, progress=false,
-				initial_params=[θ₀]
+				round(Int, n_MC_samples / n_chains), n_chains, 
+				progress=false,
+				initial_params=[θ₀ for c = 1:n_chains]
 			)
 		)
 
 		#=
-		sample c★ from this posterior
+		compute entropy of c★ in new posterior
 		=#
-		cmcs_new[s] = new_chain[end, "c★"]
+		S_news[s] = entropy(new_chain[:, "c★"])
 	end
+	#=
+	compute current and average of new entropies of c★
+	=#
 	S_now = entropy(chain[:, "c★"])
-	S_next = entropy(cmcs_new)
-	Logging.disable_logging(Logging.BelowMinLevel)
+	S_next = mean(S_news)
+	
+	Logging.disable_logging(Logging.BelowMinLevel) # don't wanna disable logging
+	
 	return S_now - S_next
 end
 
@@ -268,11 +277,14 @@ end
 # ╔═╡ 740885bd-c7f7-4598-bf7a-06f640ad12da
 cs = collect(range(0.0, 2.0, length=12))
 
+# ╔═╡ fc333a63-86f1-43d6-9f7e-1f43bd926caf
+# @time α_ig(1.0, data, posterior_samples, n_samples=100, n_MC_samples=25)
+
 # ╔═╡ 48e51f57-3d7e-4096-b5c2-67a2244ba2e9
-[α_ig(1.0, data, posterior_samples, n_samples=1000, n_MC_samples=1000) for i = 1:3]
+[α_ig(1.0, data, posterior_samples, n_samples=150, n_MC_samples=150) for i = 1:3]
 
 # ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
-# αs = [α_ig(cᵢ, data, chain) for cᵢ in cs]
+αs = [α_ig(cᵢ, data, posterior_samples, n_samples=150, n_MC_samples=150) for cᵢ in cs]
 
 # ╔═╡ e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
 lines(cs, αs)
@@ -305,10 +317,12 @@ lines(cs, αs)
 # ╠═e6ea645f-282c-4598-8755-be568d7b3d2e
 # ╟─64ebafed-7692-4fa1-bbed-fc2cde90af6b
 # ╠═f1ec7091-d47e-475d-885a-fcc96ceab663
+# ╠═a5eac5cf-a787-4a9a-b420-8d42026e3325
 # ╠═7ad08f7c-ce02-4685-9591-27ba3a42ae52
 # ╠═192b5353-c0d5-457a-bf59-579709d8f2ec
 # ╠═085d09d1-375f-4d97-92c1-73161383c0cf
 # ╠═740885bd-c7f7-4598-bf7a-06f640ad12da
+# ╠═fc333a63-86f1-43d6-9f7e-1f43bd926caf
 # ╠═48e51f57-3d7e-4096-b5c2-67a2244ba2e9
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
