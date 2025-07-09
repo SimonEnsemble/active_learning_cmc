@@ -19,7 +19,7 @@ end
 # ╔═╡ cd47d8d0-5513-11f0-02cf-23409fc28fbf
 begin
 	import Pkg; Pkg.activate("cmc")
-	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase, KernelDensity, Cubature, Test, PlutoUI, Logging, ProgressLogging
+	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase, KernelDensity, Cubature, Test, PlutoUI, Logging, ProgressLogging, Printf
 end
 
 # ╔═╡ 1e324846-70da-494c-bb88-8668a0f0e526
@@ -53,6 +53,20 @@ datafiles = [
 	"H2O-C12E5", "H2O-C16E8", "H2O-OTG", "H2O-Tween20"
 ]
 
+# ╔═╡ 5da8817c-3460-4c04-b408-aff71e4576d4
+md"
+🔨 subsample the data? check here. 👇
+
+$(@bind subsample_the_data CheckBox(default=false))"
+
+# ╔═╡ 17d43d3c-ad92-4447-adc1-dbd23001c45e
+md"❓ wut experiment?
+
+$(@bind i_expt Select(1:length(datafiles), default=3))"
+
+# ╔═╡ 8511592a-9059-43a7-b14c-941b66641cb0
+expt = datafiles[i_expt]
+
 # ╔═╡ 49de609d-4cc3-46d6-9141-5de0395088fb
 begin
 	function read_data(i::Int)
@@ -69,8 +83,10 @@ begin
 		return data
 	end
 
-	i = 3
-	data = read_data(i)[[1, 5, 18], :] # always include 1
+	data = read_data(i_expt)
+	if subsample_the_data
+		data = data[[1, 5, 18, end], :] # always include 1
+	end
 end
 
 # ╔═╡ 842d16b1-26e3-4cd2-81ac-83ed6cd3b6b3
@@ -101,7 +117,7 @@ md"# Bayesian inference
 md"🔍 search space"
 
 # ╔═╡ 67d23697-2d05-46f2-80e4-75c85c369f80
-c_max = maximum(read_data(i)[:, "[S] (mol/m³)"]) * 1.1
+c_max = maximum(read_data(i_expt)[:, "[S] (mol/m³)"]) * 1.1
 
 # ╔═╡ 9b865570-b175-4fcb-a835-b8d6278c86ac
 md"📏 measurement error"
@@ -153,6 +169,12 @@ n_MC_samples = 2500
 
 # ╔═╡ a4f779ba-9410-4e67-840f-7114561f23b4
 params = chain.name_map.parameters
+
+# ╔═╡ 37dc8c68-2270-4226-b209-f3fab65b3b13
+md"converge diagnostics"
+
+# ╔═╡ 52080b61-1e8d-4343-b79c-b3b39861e2c8
+gelmandiag(chain)
 
 # ╔═╡ bfa76e5b-e2c3-449b-8de0-cfe5df15330d
 posterior_samples = DataFrame(chain)
@@ -220,11 +242,12 @@ function viz(
 	
 	fig = Figure(size=(500, isnothing(αs) ? 500 : 700))
 	ax = Axis(
-		fig[1, 1], xlabel="[surfactant] (mmol/m³)", ylabel="surface tension (N/m)"
+		fig[1, 1], xlabel="[surfactant] (mol/m³)", ylabel="surface tension (N/m)"
 	)
 	ax_t = Axis(
-		fig[0, 1], ylabel="posterior\ndensity\nof c★"
+		fig[0, 1], ylabel="posterior\ndensity\nof c★", title=expt
 	)
+	
 	linkxaxes!(ax, ax_t)
 	rowsize!(fig.layout, 1, Relative(isnothing(αs) ? 0.8 : 0.7))
 	
@@ -246,10 +269,13 @@ function viz(
 		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], label="data",
 		color=colors[1]
 	)
-	
+
+	# credible interval
+	lo, hi = quantile(posterior_samples[:, "c★"], [0.1, 0.9])
+	ci_string = "80%" * @sprintf(" CI for c★:\n[%.2f, %.2f] mol/m³", lo, hi)
 	
 	hidexdecorations!(ax_t, grid=false)
-	axislegend(ax, unique=true)
+	axislegend(ax, ci_string, unique=true, titlefont=:regular)
 
 	if ! isnothing(αs)
 		ax_b = Axis(
@@ -259,8 +285,12 @@ function viz(
 		linkxaxes!(ax_b, ax_t, ax)
 		scatterlines!(range(0.0, c_max, length=length(αs)), αs, color=colors[4])
 	end
-
 	xlims!(0, c_max)
+	if ! subsample_the_data
+		save(expt * "_fit.pdf", fig)
+	else
+		save(expt * "_w_info_gain2.pdf", fig)
+	end
 	fig
 end
 
@@ -268,7 +298,12 @@ end
 viz(data, posterior_samples)
 
 # ╔═╡ 49199459-f93c-4a23-8bed-1ea6b2fa2c94
-md"# entropy"
+md"# entropy
+
+computing the entropy of a distribution from samples.
+
+💡 integrate a kernel density estimate of the pdf.
+"
 
 # ╔═╡ 192b5353-c0d5-457a-bf59-579709d8f2ec
 function entropy(xs::Vector{Float64})
@@ -290,7 +325,7 @@ function entropy(xs::Vector{Float64})
 		end
 	end
 	
-	S = hquadrature(S_integrand, xmin, xmax, reltol=1e-4, maxevals=500)[1]
+	S = hquadrature(S_integrand, xmin, xmax, reltol=1e-4, maxevals=250)[1]
 
 	return S
 end
@@ -303,6 +338,9 @@ begin
 	local H = 1/2 * (1 + log(2 * π * σ ^ 2))
 	@test isapprox(H, H̃, atol=0.01)
 end
+
+# ╔═╡ aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
+md"entropy of c★ over the multiple chains"
 
 # ╔═╡ fa9012a4-24f4-4358-92b3-74cb37270d31
 [entropy(Vector(chain[:c★][:, c])) for c = 1:n_chains]
@@ -370,16 +408,24 @@ end
 md"time a single run"
 
 # ╔═╡ fc333a63-86f1-43d6-9f7e-1f43bd926caf
-@time α_ig(1.0, data, posterior_samples, n_samples=500, n_MC_samples=100)
+@time α_ig(1.0, data, posterior_samples, n_samples=200, n_MC_samples=50)
 
 # ╔═╡ 1b92732c-e918-41d1-b422-822794f850e5
-md"check estimate is consisistent over multiple runs, so we can assess if we have a sufficient number of samples"
+md"
+🧪 check if the estimate of the information gradient via sampling is consisistent over multiple runs, so we can assess if we have a sufficient number of samples? check here. 👇
+
+$(@bind check_sampling CheckBox(default=false))"
 
 # ╔═╡ 48e51f57-3d7e-4096-b5c2-67a2244ba2e9
-[α_ig(1.0, data, posterior_samples, n_samples=500, n_MC_samples=50) for i = 1:4]
+if check_sampling
+	[α_ig(1.0, data, posterior_samples, n_samples=200, n_MC_samples=50) for i = 1:4]
+end
 
 # ╔═╡ 3dd13aca-090d-4ba4-8086-85c56f7d0065
-@bind compute_α CheckBox(default=false)
+md"
+🔨 actually compute the information gradient acquisition function at each next surface concentration? check here. 👇
+
+$(@bind compute_α CheckBox(default=false))"
 
 # ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
 begin
@@ -396,7 +442,9 @@ begin
 end
 
 # ╔═╡ e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
-viz(data, posterior_samples, αs=αs)
+if compute_α
+	viz(data, posterior_samples, αs=αs)
+end
 
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
@@ -405,6 +453,9 @@ viz(data, posterior_samples, αs=αs)
 # ╠═4cb87445-d372-4957-9cdb-4cd4bcc397de
 # ╟─5a1768a0-865a-46ba-b70f-0194664d9d21
 # ╠═d506f9e7-0d4d-40eb-a938-e1465c836222
+# ╟─5da8817c-3460-4c04-b408-aff71e4576d4
+# ╟─17d43d3c-ad92-4447-adc1-dbd23001c45e
+# ╠═8511592a-9059-43a7-b14c-941b66641cb0
 # ╠═49de609d-4cc3-46d6-9141-5de0395088fb
 # ╟─842d16b1-26e3-4cd2-81ac-83ed6cd3b6b3
 # ╠═533a51d0-3b42-42e0-b8db-1ab7c672f3df
@@ -421,6 +472,8 @@ viz(data, posterior_samples, αs=αs)
 # ╠═ea27c7f7-0073-4d0b-a171-7b404af1d0d6
 # ╠═948a0fe4-e8ec-47e5-92a7-a66be020f0df
 # ╠═a4f779ba-9410-4e67-840f-7114561f23b4
+# ╟─37dc8c68-2270-4226-b209-f3fab65b3b13
+# ╠═52080b61-1e8d-4343-b79c-b3b39861e2c8
 # ╠═bfa76e5b-e2c3-449b-8de0-cfe5df15330d
 # ╟─fbe04777-fe1c-4f75-8059-80abd2da17da
 # ╠═52dc4eb7-702c-4c1f-967d-34c431b74436
@@ -434,6 +487,7 @@ viz(data, posterior_samples, αs=αs)
 # ╟─49199459-f93c-4a23-8bed-1ea6b2fa2c94
 # ╠═192b5353-c0d5-457a-bf59-579709d8f2ec
 # ╠═085d09d1-375f-4d97-92c1-73161383c0cf
+# ╟─aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
 # ╠═fa9012a4-24f4-4358-92b3-74cb37270d31
 # ╟─64ebafed-7692-4fa1-bbed-fc2cde90af6b
 # ╠═f1ec7091-d47e-475d-885a-fcc96ceab663
@@ -441,6 +495,6 @@ viz(data, posterior_samples, αs=αs)
 # ╠═fc333a63-86f1-43d6-9f7e-1f43bd926caf
 # ╟─1b92732c-e918-41d1-b422-822794f850e5
 # ╠═48e51f57-3d7e-4096-b5c2-67a2244ba2e9
-# ╠═3dd13aca-090d-4ba4-8086-85c56f7d0065
+# ╟─3dd13aca-090d-4ba4-8086-85c56f7d0065
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
