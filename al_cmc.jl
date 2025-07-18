@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.11
+# v0.20.13
 
 using Markdown
 using InteractiveUtils
@@ -19,7 +19,7 @@ end
 # ╔═╡ cd47d8d0-5513-11f0-02cf-23409fc28fbf
 begin
 	import Pkg; Pkg.activate("cmc")
-	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase, KernelDensity, Cubature, Test, PlutoUI, Logging, ProgressLogging, Printf
+	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase, KernelDensity, Cubature, Test, PlutoUI, Logging, ProgressLogging, Printf, Random
 end
 
 # ╔═╡ 1e324846-70da-494c-bb88-8668a0f0e526
@@ -85,7 +85,9 @@ begin
 
 	data = read_data(i_expt)
 	if subsample_the_data
-		data = data[[1, 5, 18, end], :] # always include 1
+		# data = data[[1, 5, 18], :] # always include 1
+		data = data[[1, end], :]
+		#data = data[[1, 5, 18, end], :] # always include 1
 	end
 end
 
@@ -117,7 +119,7 @@ md"# Bayesian inference
 md"🔍 search space"
 
 # ╔═╡ 67d23697-2d05-46f2-80e4-75c85c369f80
-c_max = maximum(read_data(i_expt)[:, "[S] (mol/m³)"]) * 1.1
+c_max = 30.0 # maximum(read_data(i_expt)[:, "[S] (mol/m³)"]) * 1.1
 
 # ╔═╡ 9b865570-b175-4fcb-a835-b8d6278c86ac
 md"📏 measurement error"
@@ -162,10 +164,13 @@ model = cmc_model(data)
 md"## sample chain"
 
 # ╔═╡ ea27c7f7-0073-4d0b-a171-7b404af1d0d6
-n_MC_samples = 2500
+n_MC_samples = 5000
 
 # ╔═╡ 948a0fe4-e8ec-47e5-92a7-a66be020f0df
-@time chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
+begin
+	Random.seed!(45345635)
+	@time chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
+end
 
 # ╔═╡ a4f779ba-9410-4e67-840f-7114561f23b4
 params = chain.name_map.parameters
@@ -287,9 +292,9 @@ function viz(
 	end
 	xlims!(0, c_max)
 	if ! subsample_the_data
-		save(expt * "_fit.pdf", fig)
+		save(expt * "_fit_$(nrow(data)).pdf", fig)
 	else
-		save(expt * "_w_info_gain2.pdf", fig)
+		save(expt * "_w_info_gain_$(nrow(data)).pdf", fig)
 	end
 	fig
 end
@@ -353,6 +358,7 @@ function α_ig(
 	c, data::DataFrame, posterior_samples::DataFrame; 
 	n_samples::Int=100, n_MC_samples::Int=100
 )
+	Random.seed!(45345635)
 	Logging.disable_logging(Logging.Info)  # Disables info-level messages
 	S_news = zeros(n_samples)
 	for s = 1:n_samples
@@ -429,7 +435,7 @@ $(@bind compute_α CheckBox(default=false))"
 
 # ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
 begin
-	cs = collect(range(0.0, c_max, length=50))
+	cs = collect(range(0.0, c_max, length=25))
 	αs = zeros(length(cs))
 	if compute_α
 		@progress for i = 1:length(cs)
@@ -445,6 +451,12 @@ end
 if compute_α
 	viz(data, posterior_samples, αs=αs)
 end
+
+# ╔═╡ d62302f7-0fe7-4c44-80ca-862d3b38c870
+println(
+	"design: choose [S] (mol/m³) = ",
+	cs[argmax(αs)]
+)
 
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
@@ -498,3 +510,4 @@ end
 # ╟─3dd13aca-090d-4ba4-8086-85c56f7d0065
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
+# ╠═d62302f7-0fe7-4c44-80ca-862d3b38c870
