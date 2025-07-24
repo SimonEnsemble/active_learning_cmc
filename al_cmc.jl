@@ -64,6 +64,9 @@ md"❓ wut experiment?
 
 $(@bind i_expt Select(1:length(datafiles), default=3))"
 
+# ╔═╡ 5fc5c67a-9ed8-4d23-ab43-43b90f165229
+md"🚗 driving mode! $(@bind driving_mode CheckBox(default=true))"
+
 # ╔═╡ 8511592a-9059-43a7-b14c-941b66641cb0
 expt = datafiles[i_expt]
 
@@ -83,11 +86,18 @@ begin
 		return data
 	end
 
-	data = read_data(i_expt)
-	if subsample_the_data
-		# data = data[[1, 5, 18], :] # always include 1
-		data = data[[1, end], :]
-		#data = data[[1, 5, 18, end], :] # always include 1
+	if driving_mode
+		data = DataFrame(
+			"[S] (mol/m³)" => [0.0, 30.0, 3.0, 12.0],
+			"γ (N/m)" => [71.87, 29.54, 44.2325, 29.68] / 1000.0
+		)
+	else
+		data = read_data(i_expt)
+		if subsample_the_data
+			# data = data[[1, 5, 18], :] # always include 1
+			data = data[[1, end], :]
+			#data = data[[1, 5, 18, end], :] # always include 1
+		end
 	end
 end
 
@@ -127,6 +137,9 @@ md"📏 measurement error"
 # ╔═╡ 17ab88fc-8d65-42a8-94a7-3ac643638ef7
 σ = 0.001 # (N/m) 
 
+# ╔═╡ abf4f144-f45f-4689-8128-8b9ca5464fc3
+293 * 8.314 * 10^(-6)
+
 # ╔═╡ bcd013f5-3211-4ca4-ac1d-fae758199e75
 @model function cmc_model(data::DataFrame)
 	# begin with pure solvent so γ₀ doesn't need inferred
@@ -136,10 +149,9 @@ md"📏 measurement error"
 	#=
 	prior distributions
 	=#
-	# σ ~ Uniform(0.0, 0.01)
-	a ~ Uniform(0.0, 0.25)
-	K ~ Uniform(0.0, 20.0)
-	c★ ~ Uniform(0.0, c_max)
+	a ~ Uniform(0.001, 0.1)   # N/m
+	K ~ Uniform(0.0, 10000.0) # 1 / (mol / m³)
+	c★ ~ Uniform(0.0, c_max)  # mol / m³
 
 	#=
 	show data
@@ -164,7 +176,7 @@ model = cmc_model(data)
 md"## sample chain"
 
 # ╔═╡ ea27c7f7-0073-4d0b-a171-7b404af1d0d6
-n_MC_samples = 5000
+n_MC_samples = 10000
 
 # ╔═╡ 948a0fe4-e8ec-47e5-92a7-a66be020f0df
 begin
@@ -235,13 +247,19 @@ end
 # ╔═╡ 6c255255-f3b4-4112-b06b-7583781eb69e
 draw_convergence_diagnostics(posterior_samples, "c★")
 
+# ╔═╡ 9a3c24dc-3e90-4008-824e-5719bd74c1c5
+draw_convergence_diagnostics(posterior_samples, "K")
+
+# ╔═╡ 9ad673c6-68ae-4b2e-bbc3-74d42bd44fd6
+draw_convergence_diagnostics(posterior_samples, "a")
+
 # ╔═╡ c9f08ffb-b44f-4be3-881d-096020f17493
 md"## viz posterior distn"
 
 # ╔═╡ 06cf608e-782e-4c67-acb2-3aead3642704
 function viz(
 	data::DataFrame, posterior_samples::DataFrame;
-	αs::Union{Vector{Float64}, Nothing}=nothing
+	αs::Union{Vector{Float64}, Nothing}=nothing, n_samples_plot::Int=50
 )
 	cs = range(0.0, c_max, length=100)
 	
@@ -260,7 +278,7 @@ function viz(
 	density!(ax_t, posterior_samples[:, "c★"], color=colors[3])
 
 	# posterior surface tension vs. surfactant conc. samples
-	for s = 1:25
+	for s = 1:n_samples_plot
 		i = sample(1:nrow(posterior_samples))
 		a, K, c★ = posterior_samples[i, ["a", "K", "c★"]]
 				
@@ -291,16 +309,17 @@ function viz(
 		scatterlines!(range(0.0, c_max, length=length(αs)), αs, color=colors[4])
 	end
 	xlims!(0, c_max)
+	savename = driving_mode ? "driving" : expt
 	if ! subsample_the_data
-		save(expt * "_fit_$(nrow(data)).pdf", fig)
+		save(savename * "_fit_$(nrow(data)).pdf", fig)
 	else
-		save(expt * "_w_info_gain_$(nrow(data)).pdf", fig)
+		save(savename * "_w_info_gain_$(nrow(data)).pdf", fig)
 	end
 	fig
 end
 
 # ╔═╡ e6ea645f-282c-4598-8755-be568d7b3d2e
-viz(data, posterior_samples)
+viz(data, posterior_samples, n_samples_plot=25)
 
 # ╔═╡ 49199459-f93c-4a23-8bed-1ea6b2fa2c94
 md"# entropy
@@ -435,13 +454,15 @@ $(@bind compute_α CheckBox(default=false))"
 
 # ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
 begin
-	cs = collect(range(0.0, c_max, length=25))
+	# candidate experiments [mol/m³]
+	cs = collect(range(0.0, c_max, length=61))
+	# info gains
 	αs = zeros(length(cs))
 	if compute_α
 		@progress for i = 1:length(cs)
 			αs[i] = α_ig(
 				cs[i], data, posterior_samples, 
-				n_samples=250, n_MC_samples=50
+				n_samples=250, n_MC_samples=100
 			)
 		end
 	end
@@ -452,11 +473,26 @@ if compute_α
 	viz(data, posterior_samples, αs=αs)
 end
 
+# ╔═╡ a77da5ad-264c-4704-b5b6-07deb93b4ea7
+picked_c = cs[argmax(αs)]
+
 # ╔═╡ d62302f7-0fe7-4c44-80ca-862d3b38c870
 println(
 	"design: choose [S] (mol/m³) = ",
-	cs[argmax(αs)]
+	picked_c
 )
+
+# ╔═╡ 630c2ab7-fa68-4a74-8c31-48b68b70b37b
+md"$m V = m_s V_s$"
+
+# ╔═╡ c24c3e26-f940-4a8c-a88d-26a619415427
+c_stock = 30.0 # mol/L
+
+# ╔═╡ a6d7623e-350d-4e36-88db-89adf99043a9
+V_sample = 25 # mL
+
+# ╔═╡ e62a4099-9f49-4636-a828-76918a437170
+println("mL stock solution: ", V_sample * picked_c / c_stock)
 
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
@@ -467,6 +503,7 @@ println(
 # ╠═d506f9e7-0d4d-40eb-a938-e1465c836222
 # ╟─5da8817c-3460-4c04-b408-aff71e4576d4
 # ╟─17d43d3c-ad92-4447-adc1-dbd23001c45e
+# ╟─5fc5c67a-9ed8-4d23-ab43-43b90f165229
 # ╠═8511592a-9059-43a7-b14c-941b66641cb0
 # ╠═49de609d-4cc3-46d6-9141-5de0395088fb
 # ╟─842d16b1-26e3-4cd2-81ac-83ed6cd3b6b3
@@ -478,6 +515,7 @@ println(
 # ╠═67d23697-2d05-46f2-80e4-75c85c369f80
 # ╟─9b865570-b175-4fcb-a835-b8d6278c86ac
 # ╠═17ab88fc-8d65-42a8-94a7-3ac643638ef7
+# ╠═abf4f144-f45f-4689-8128-8b9ca5464fc3
 # ╠═bcd013f5-3211-4ca4-ac1d-fae758199e75
 # ╠═9d2f66ee-03aa-42d9-ae9d-6ee14f1f1f63
 # ╟─f0b122c9-4d43-405b-a28e-ead0c79772cb
@@ -493,6 +531,8 @@ println(
 # ╟─fdd7373d-47e7-4f17-869f-03b2145c1c02
 # ╠═14334653-2134-4782-a2d9-ef84837b2c45
 # ╠═6c255255-f3b4-4112-b06b-7583781eb69e
+# ╠═9a3c24dc-3e90-4008-824e-5719bd74c1c5
+# ╠═9ad673c6-68ae-4b2e-bbc3-74d42bd44fd6
 # ╟─c9f08ffb-b44f-4be3-881d-096020f17493
 # ╠═06cf608e-782e-4c67-acb2-3aead3642704
 # ╠═e6ea645f-282c-4598-8755-be568d7b3d2e
@@ -510,4 +550,9 @@ println(
 # ╟─3dd13aca-090d-4ba4-8086-85c56f7d0065
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
+# ╠═a77da5ad-264c-4704-b5b6-07deb93b4ea7
 # ╠═d62302f7-0fe7-4c44-80ca-862d3b38c870
+# ╟─630c2ab7-fa68-4a74-8c31-48b68b70b37b
+# ╠═c24c3e26-f940-4a8c-a88d-26a619415427
+# ╠═a6d7623e-350d-4e36-88db-89adf99043a9
+# ╠═e62a4099-9f49-4636-a828-76918a437170
