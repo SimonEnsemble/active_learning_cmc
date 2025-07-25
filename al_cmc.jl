@@ -68,7 +68,7 @@ $(@bind i_expt Select(1:length(datafiles), default=3))"
 md"🚗 driving mode! $(@bind driving_mode CheckBox(default=true))"
 
 # ╔═╡ 8511592a-9059-43a7-b14c-941b66641cb0
-expt = datafiles[i_expt]
+expt = driving_mode ? "OTG" : datafiles[i_expt]
 
 # ╔═╡ 49de609d-4cc3-46d6-9141-5de0395088fb
 begin
@@ -88,8 +88,8 @@ begin
 
 	if driving_mode
 		data = DataFrame(
-			"[S] (mol/m³)" => [0.0, 30.0, 3.0, 12.0],
-			"γ (N/m)" => [71.87, 29.54, 44.2325, 29.68] / 1000.0
+			"[S] (mol/m³)" => [0.0, 30.0, 3.0, 12.0, 7.5, 8.5, 0.75],
+			"γ (N/m)" => [71.87, 29.54, 44.2325, 29.68, 32.42, 31.06, 55.2075] / 1000.0
 		)
 	else
 		data = read_data(i_expt)
@@ -137,9 +137,6 @@ md"📏 measurement error"
 # ╔═╡ 17ab88fc-8d65-42a8-94a7-3ac643638ef7
 σ = 0.001 # (N/m) 
 
-# ╔═╡ abf4f144-f45f-4689-8128-8b9ca5464fc3
-293 * 8.314 * 10^(-6)
-
 # ╔═╡ bcd013f5-3211-4ca4-ac1d-fae758199e75
 @model function cmc_model(data::DataFrame)
 	# begin with pure solvent so γ₀ doesn't need inferred
@@ -149,6 +146,7 @@ md"📏 measurement error"
 	#=
 	prior distributions
 	=#
+	σ ~ Uniform(0.0, 0.002)
 	a ~ Uniform(0.001, 0.1)   # N/m
 	K ~ Uniform(0.0, 10000.0) # 1 / (mol / m³)
 	c★ ~ Uniform(0.0, c_max)  # mol / m³
@@ -176,11 +174,11 @@ model = cmc_model(data)
 md"## sample chain"
 
 # ╔═╡ ea27c7f7-0073-4d0b-a171-7b404af1d0d6
-n_MC_samples = 10000
+n_MC_samples = 25000
 
 # ╔═╡ 948a0fe4-e8ec-47e5-92a7-a66be020f0df
 begin
-	Random.seed!(45345635)
+	Random.seed!(45345635 + 1)
 	@time chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
 end
 
@@ -244,6 +242,12 @@ function draw_convergence_diagnostics(posterior_samples::DataFrame, param::Strin
 	fig
 end
 
+# ╔═╡ 4416d258-a35b-40e8-a9c8-4260f6fe4f8e
+
+
+# ╔═╡ 0ef63054-a677-4078-8795-0c1d7df85b80
+draw_convergence_diagnostics(posterior_samples, "σ")
+
 # ╔═╡ 6c255255-f3b4-4112-b06b-7583781eb69e
 draw_convergence_diagnostics(posterior_samples, "c★")
 
@@ -255,6 +259,19 @@ draw_convergence_diagnostics(posterior_samples, "a")
 
 # ╔═╡ c9f08ffb-b44f-4be3-881d-096020f17493
 md"## viz posterior distn"
+
+# ╔═╡ a738488f-b26d-4f9c-b6a6-f120becd28cf
+function posterior_c★_mode(
+	posterior_samples::DataFrame
+)
+	the_kde = kde(posterior_samples[:, "c★"])
+	xs = range(0.0, c_max, length=200)
+	ρs = [pdf(the_kde, xi) for xi in xs]
+	return xs[argmax(ρs)]
+end
+
+# ╔═╡ 5521e61b-7e34-4f72-882d-c7697463bef1
+posterior_c★_mode(posterior_samples)
 
 # ╔═╡ 06cf608e-782e-4c67-acb2-3aead3642704
 function viz(
@@ -284,7 +301,8 @@ function viz(
 				
 		lines!(
 			ax, cs, γ_model.(cs, γ₀, a, K, c★), 
-			color=(colors[2], 0.1), label="posterior sample")
+			color=(colors[2], 0.1), label="posterior sample"
+		)
 	end
 	
 	# data
@@ -292,10 +310,17 @@ function viz(
 		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], label="data",
 		color=colors[1]
 	)
+	errorbars!(
+		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], σ,
+		color=colors[1]
+	)
 
 	# credible interval
-	lo, hi = quantile(posterior_samples[:, "c★"], [0.1, 0.9])
-	ci_string = "80%" * @sprintf(" CI for c★:\n[%.2f, %.2f] mol/m³", lo, hi)
+	lo, hi = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
+	ci_string = "90%" * @sprintf(" CI for c★:\n[%.2f, %.2f] mol/m³", lo, hi)
+	c★_mode = posterior_c★_mode(posterior_samples)
+	println("\tposterior mode: ", c★_mode)
+	println("\tCI width / posterior mode: ", (hi - lo) / c★_mode)
 	
 	hidexdecorations!(ax_t, grid=false)
 	axislegend(ax, ci_string, unique=true, titlefont=:regular)
@@ -320,6 +345,9 @@ end
 
 # ╔═╡ e6ea645f-282c-4598-8755-be568d7b3d2e
 viz(data, posterior_samples, n_samples_plot=25)
+
+# ╔═╡ 2b80d672-1f8a-476b-a8de-7929414135eb
+mean(posterior_samples[:, "σ"])
 
 # ╔═╡ 49199459-f93c-4a23-8bed-1ea6b2fa2c94
 md"# entropy
@@ -455,14 +483,17 @@ $(@bind compute_α CheckBox(default=false))"
 # ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
 begin
 	# candidate experiments [mol/m³]
-	cs = collect(range(0.0, c_max, length=61))
+	cs = 0:0.25:30.0 # nrow = 5
+	# cs = collect(range(0.0, c_max, length=61)) # nrow = 4
+	# cs = collect(range(0.0, c_max, length=31)) # nrow = 2, 3
 	# info gains
 	αs = zeros(length(cs))
 	if compute_α
 		@progress for i = 1:length(cs)
 			αs[i] = α_ig(
 				cs[i], data, posterior_samples, 
-				n_samples=250, n_MC_samples=100
+				# n_samples=250, n_MC_samples=100
+				n_samples=300, n_MC_samples=150
 			)
 		end
 	end
@@ -474,7 +505,35 @@ if compute_α
 end
 
 # ╔═╡ a77da5ad-264c-4704-b5b6-07deb93b4ea7
-picked_c = cs[argmax(αs)]
+begin
+	picked_c = 0.0
+	for i in sortperm(αs, rev=true)
+		c = cs[i]
+		if ! (c in data[:, "[S] (mol/m³)"])
+			picked_c = c
+			break
+		end
+	end
+	picked_c
+end
+
+# ╔═╡ 117135ab-1106-4713-bb6a-a644d2b62162
+cs[argmax(αs)]
+
+# ╔═╡ ab4c36dc-e63e-43c6-a31a-8bfb8ac62051
+data
+
+# ╔═╡ 84af26f3-ef8c-4437-968c-0a582cec16e1
+cs[sortperm(αs, rev=true)]
+
+# ╔═╡ 5da23800-29e3-4323-905c-cb3a31a03e7f
+sort(
+	DataFrame(
+		"c" => cs,
+		"α" => αs
+	), 
+	"α"
+)
 
 # ╔═╡ d62302f7-0fe7-4c44-80ca-862d3b38c870
 println(
@@ -483,7 +542,10 @@ println(
 )
 
 # ╔═╡ 630c2ab7-fa68-4a74-8c31-48b68b70b37b
-md"$m V = m_s V_s$"
+md"
+# stock solution calculation
+
+$m V = m_s V_s$"
 
 # ╔═╡ c24c3e26-f940-4a8c-a88d-26a619415427
 c_stock = 30.0 # mol/L
@@ -492,7 +554,7 @@ c_stock = 30.0 # mol/L
 V_sample = 25 # mL
 
 # ╔═╡ e62a4099-9f49-4636-a828-76918a437170
-println("mL stock solution: ", V_sample * picked_c / c_stock)
+println("stock solution needed: ", V_sample * picked_c / c_stock, " mL")
 
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
@@ -515,7 +577,6 @@ println("mL stock solution: ", V_sample * picked_c / c_stock)
 # ╠═67d23697-2d05-46f2-80e4-75c85c369f80
 # ╟─9b865570-b175-4fcb-a835-b8d6278c86ac
 # ╠═17ab88fc-8d65-42a8-94a7-3ac643638ef7
-# ╠═abf4f144-f45f-4689-8128-8b9ca5464fc3
 # ╠═bcd013f5-3211-4ca4-ac1d-fae758199e75
 # ╠═9d2f66ee-03aa-42d9-ae9d-6ee14f1f1f63
 # ╟─f0b122c9-4d43-405b-a28e-ead0c79772cb
@@ -530,12 +591,17 @@ println("mL stock solution: ", V_sample * picked_c / c_stock)
 # ╠═34b9ba4a-5a24-48c1-9cbe-5f4084b501ed
 # ╟─fdd7373d-47e7-4f17-869f-03b2145c1c02
 # ╠═14334653-2134-4782-a2d9-ef84837b2c45
+# ╠═4416d258-a35b-40e8-a9c8-4260f6fe4f8e
+# ╠═0ef63054-a677-4078-8795-0c1d7df85b80
 # ╠═6c255255-f3b4-4112-b06b-7583781eb69e
 # ╠═9a3c24dc-3e90-4008-824e-5719bd74c1c5
 # ╠═9ad673c6-68ae-4b2e-bbc3-74d42bd44fd6
 # ╟─c9f08ffb-b44f-4be3-881d-096020f17493
+# ╠═a738488f-b26d-4f9c-b6a6-f120becd28cf
+# ╠═5521e61b-7e34-4f72-882d-c7697463bef1
 # ╠═06cf608e-782e-4c67-acb2-3aead3642704
 # ╠═e6ea645f-282c-4598-8755-be568d7b3d2e
+# ╠═2b80d672-1f8a-476b-a8de-7929414135eb
 # ╟─49199459-f93c-4a23-8bed-1ea6b2fa2c94
 # ╠═192b5353-c0d5-457a-bf59-579709d8f2ec
 # ╠═085d09d1-375f-4d97-92c1-73161383c0cf
@@ -551,6 +617,10 @@ println("mL stock solution: ", V_sample * picked_c / c_stock)
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
 # ╠═a77da5ad-264c-4704-b5b6-07deb93b4ea7
+# ╠═117135ab-1106-4713-bb6a-a644d2b62162
+# ╠═ab4c36dc-e63e-43c6-a31a-8bfb8ac62051
+# ╠═84af26f3-ef8c-4437-968c-0a582cec16e1
+# ╠═5da23800-29e3-4323-905c-cb3a31a03e7f
 # ╠═d62302f7-0fe7-4c44-80ca-862d3b38c870
 # ╟─630c2ab7-fa68-4a74-8c31-48b68b70b37b
 # ╠═c24c3e26-f940-4a8c-a88d-26a619415427
