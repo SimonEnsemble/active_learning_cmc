@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.11
+# v0.20.13
 
 using Markdown
 using InteractiveUtils
@@ -556,6 +556,81 @@ V_sample = 25 # mL
 # ╔═╡ e62a4099-9f49-4636-a828-76918a437170
 println("stock solution needed: ", V_sample * picked_c / c_stock, " mL")
 
+# ╔═╡ faef0439-9571-463a-adfa-714b6294d6c4
+md"# information dynamics"
+
+# ╔═╡ 020c9480-3b26-401b-bf93-394267caef55
+vcat(data[1:2, :], data[3:4, :])
+
+# ╔═╡ e0d9f20d-7d0a-48c2-b10c-f0c251280a66
+function entropy_dynamics(data)
+	nb_iters = nrow(data) - 2
+
+	S = zeros(nb_iters+1)
+	lo = zeros(nb_iters+1)
+	hi = zeros(nb_iters+1)
+	c★_posterior_samples = DataFrame(
+		"iteration" => Int[],
+		"c★" => Float64[]
+	)
+	for i = 0:nb_iters
+		model = cmc_model(data[1:(2+i), :])
+		
+		chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
+		
+		if ! all(gelmandiag(chain)[:, :psrfci] .< 1.1)
+			println("chain not converged.")
+		end
+		
+		posterior_samples = DataFrame(chain)
+
+		c★_posterior_samples = vcat(
+			c★_posterior_samples,
+			DataFrame(
+				"iteration" => [i for j = 1:nrow(posterior_samples)],
+				"c★" => posterior_samples[:, "c★"]
+			)
+		)
+
+		S[i+1] = entropy(posterior_samples[:, "c★"])
+
+		lo[i+1], hi[i+1] = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
+	end
+	
+	info_dynamics = DataFrame(
+		"iteration" => [i for i = 0:nb_iters],
+		"entropy c★" => S,
+		"CI lo" => lo,
+		"CI hi" => hi
+	)
+	return info_dynamics, c★_posterior_samples
+end
+
+# ╔═╡ 6d2ff265-8014-462e-982a-19bc1c19cef2
+info_dynamics, c★_posterior_samples = entropy_dynamics(data)
+
+# ╔═╡ 348a7004-6a30-4586-9f0d-6fa25827102f
+begin
+	local fig = Figure()
+	local ax = Axis(
+		fig[1, 1], xlabel="iteration", ylabel="entropy of c★", xticks=0:nrow(data)
+	)
+	scatterlines!(info_dynamics[:, "iteration"], info_dynamics[:, "entropy c★"])
+	ylims!(0, nothing)
+	fig
+end
+
+# ╔═╡ 8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
+begin
+	local fig = Figure()
+	local ax = Axis(
+		fig[1, 1], xlabel="iteration", ylabel="c★", xticks=0:nrow(data)
+	)
+	violin!(c★_posterior_samples[:, "iteration"], c★_posterior_samples[:, "c★"])
+	ylims!(0, nothing)
+	fig
+end
+
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
 # ╠═1e324846-70da-494c-bb88-8668a0f0e526
@@ -624,3 +699,9 @@ println("stock solution needed: ", V_sample * picked_c / c_stock, " mL")
 # ╠═c24c3e26-f940-4a8c-a88d-26a619415427
 # ╠═a6d7623e-350d-4e36-88db-89adf99043a9
 # ╠═e62a4099-9f49-4636-a828-76918a437170
+# ╟─faef0439-9571-463a-adfa-714b6294d6c4
+# ╠═020c9480-3b26-401b-bf93-394267caef55
+# ╠═e0d9f20d-7d0a-48c2-b10c-f0c251280a66
+# ╠═6d2ff265-8014-462e-982a-19bc1c19cef2
+# ╠═348a7004-6a30-4586-9f0d-6fa25827102f
+# ╠═8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
