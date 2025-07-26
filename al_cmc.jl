@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.11
 
 using Markdown
 using InteractiveUtils
@@ -88,8 +88,8 @@ begin
 
 	if driving_mode
 		data = DataFrame(
-			"[S] (mol/m³)" => [0.0, 30.0, 3.0, 12.0, 7.5, 8.5, 0.75],
-			"γ (N/m)" => [71.87, 29.54, 44.2325, 29.68, 32.42, 31.06, 55.2075] / 1000.0
+			"[S] (mol/m³)" => [0.0, 30.0, 3.0, 12.0, 7.5, 8.5, 0.75, 8.75, 13.25],
+			"γ (N/m)" => [71.87, 29.54, 44.2325, 29.68, 32.42, 31.06, 55.2075, 29.89333, 29.567] / 1000.0
 		)
 	else
 		data = read_data(i_expt)
@@ -146,7 +146,7 @@ md"📏 measurement error"
 	#=
 	prior distributions
 	=#
-	σ ~ Uniform(0.0, 0.002)
+	# σ ~ Uniform(0.0, 0.002)
 	a ~ Uniform(0.001, 0.1)   # N/m
 	K ~ Uniform(0.0, 10000.0) # 1 / (mol / m³)
 	c★ ~ Uniform(0.0, c_max)  # mol / m³
@@ -212,6 +212,9 @@ md"## viz convergence"
 # ╔═╡ 14334653-2134-4782-a2d9-ef84837b2c45
 function draw_convergence_diagnostics(posterior_samples::DataFrame, param::String)
 	n_chains = length(unique(posterior_samples[:, "chain"]))
+
+	println("mean: ", mean(posterior_samples[:, param]))
+	println("std: ", std(posterior_samples[:, param]))
 	
 	fig = Figure()
 	
@@ -242,11 +245,10 @@ function draw_convergence_diagnostics(posterior_samples::DataFrame, param::Strin
 	fig
 end
 
-# ╔═╡ 4416d258-a35b-40e8-a9c8-4260f6fe4f8e
-
-
 # ╔═╡ 0ef63054-a677-4078-8795-0c1d7df85b80
-draw_convergence_diagnostics(posterior_samples, "σ")
+if :σ in names(posterior_samples)
+	draw_convergence_diagnostics(posterior_samples, "σ")
+end
 
 # ╔═╡ 6c255255-f3b4-4112-b06b-7583781eb69e
 draw_convergence_diagnostics(posterior_samples, "c★")
@@ -311,7 +313,7 @@ function viz(
 		color=colors[1]
 	)
 	errorbars!(
-		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], σ,
+		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], σ * ones(nrow(data)),
 		color=colors[1]
 	)
 
@@ -345,9 +347,6 @@ end
 
 # ╔═╡ e6ea645f-282c-4598-8755-be568d7b3d2e
 viz(data, posterior_samples, n_samples_plot=25)
-
-# ╔═╡ 2b80d672-1f8a-476b-a8de-7929414135eb
-mean(posterior_samples[:, "σ"])
 
 # ╔═╡ 49199459-f93c-4a23-8bed-1ea6b2fa2c94
 md"# entropy
@@ -493,7 +492,8 @@ begin
 			αs[i] = α_ig(
 				cs[i], data, posterior_samples, 
 				# n_samples=250, n_MC_samples=100
-				n_samples=300, n_MC_samples=150
+				# n_samples=300, n_MC_samples=150,
+				n_samples=300, n_MC_samples=200,
 			)
 		end
 	end
@@ -591,7 +591,6 @@ println("stock solution needed: ", V_sample * picked_c / c_stock, " mL")
 # ╠═34b9ba4a-5a24-48c1-9cbe-5f4084b501ed
 # ╟─fdd7373d-47e7-4f17-869f-03b2145c1c02
 # ╠═14334653-2134-4782-a2d9-ef84837b2c45
-# ╠═4416d258-a35b-40e8-a9c8-4260f6fe4f8e
 # ╠═0ef63054-a677-4078-8795-0c1d7df85b80
 # ╠═6c255255-f3b4-4112-b06b-7583781eb69e
 # ╠═9a3c24dc-3e90-4008-824e-5719bd74c1c5
@@ -601,7 +600,6 @@ println("stock solution needed: ", V_sample * picked_c / c_stock, " mL")
 # ╠═5521e61b-7e34-4f72-882d-c7697463bef1
 # ╠═06cf608e-782e-4c67-acb2-3aead3642704
 # ╠═e6ea645f-282c-4598-8755-be568d7b3d2e
-# ╠═2b80d672-1f8a-476b-a8de-7929414135eb
 # ╟─49199459-f93c-4a23-8bed-1ea6b2fa2c94
 # ╠═192b5353-c0d5-457a-bf59-579709d8f2ec
 # ╠═085d09d1-375f-4d97-92c1-73161383c0cf
