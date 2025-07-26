@@ -316,6 +316,15 @@ function viz(
 		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], σ * ones(nrow(data)),
 		color=colors[1]
 	)
+	if driving_mode
+		annotation!(
+			ax, 
+			[(row["[S] (mol/m³)"], row["γ (N/m)"]) for row in eachrow(data)], 
+			text=vcat(["0", "0"], ["$i" for i = 1:(nrow(data)-2)]),
+			color=colors[6],
+			fontsize=12
+		)
+	end
 
 	# credible interval
 	lo, hi = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
@@ -335,7 +344,7 @@ function viz(
 		linkxaxes!(ax_b, ax_t, ax)
 		scatterlines!(range(0.0, c_max, length=length(αs)), αs, color=colors[4])
 	end
-	xlims!(0, c_max)
+	xlims!(-0.5, c_max + 0.5)
 	savename = driving_mode ? "driving" : expt
 	if ! subsample_the_data
 		save(savename * "_fit_$(nrow(data)).pdf", fig)
@@ -559,9 +568,6 @@ println("stock solution needed: ", V_sample * picked_c / c_stock, " mL")
 # ╔═╡ faef0439-9571-463a-adfa-714b6294d6c4
 md"# information dynamics"
 
-# ╔═╡ 020c9480-3b26-401b-bf93-394267caef55
-vcat(data[1:2, :], data[3:4, :])
-
 # ╔═╡ e0d9f20d-7d0a-48c2-b10c-f0c251280a66
 function entropy_dynamics(data)
 	nb_iters = nrow(data) - 2
@@ -613,10 +619,15 @@ info_dynamics, c★_posterior_samples = entropy_dynamics(data)
 begin
 	local fig = Figure()
 	local ax = Axis(
-		fig[1, 1], xlabel="iteration", ylabel="entropy of c★", xticks=0:nrow(data)
+		fig[1, 1], xlabel="iteration", ylabel="entropy, S(C★) [nat]", xticks=0:nrow(data),
+		title="entropy of posterior of CMC"
 	)
-	scatterlines!(info_dynamics[:, "iteration"], info_dynamics[:, "entropy c★"])
+	scatterlines!(
+		info_dynamics[:, "iteration"], info_dynamics[:, "entropy c★"],
+		markersize=20
+	)
 	ylims!(0, nothing)
+	save("entropy_over_iters.pdf", fig)
 	fig
 end
 
@@ -624,12 +635,31 @@ end
 begin
 	local fig = Figure()
 	local ax = Axis(
-		fig[1, 1], xlabel="iteration", ylabel="c★", xticks=0:nrow(data)
+		fig[1, 1], xlabel="iteration", ylabel="CMC, c★ [mol/m³]", xticks=0:nrow(data),
+		title="posterior and credible interval for CMC"
 	)
-	violin!(c★_posterior_samples[:, "iteration"], c★_posterior_samples[:, "c★"])
+	hlines!(
+		[9.0], label="literature-reported CMC", color=colors[3], linewidth=1
+	)
+	violin!(
+		c★_posterior_samples[:, "iteration"], c★_posterior_samples[:, "c★"],
+		side=:right, label="posterior density"
+	)
+	for (i, row) in enumerate(eachrow(info_dynamics))
+		lines!(
+			[row["iteration"], row["iteration"]], 
+			[row["CI lo"], row["CI hi"]], 
+			color="black", linewidth=2, label="90% credible interval"
+		)
+	end
+	axislegend(unique=true)
 	ylims!(0, nothing)
+	save("posterior_over_iters.pdf", fig)
 	fig
 end
+
+# ╔═╡ cf20b7c9-85bc-4f57-a74e-edcf77e3033d
+names(info_dynamics)
 
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
@@ -700,8 +730,8 @@ end
 # ╠═a6d7623e-350d-4e36-88db-89adf99043a9
 # ╠═e62a4099-9f49-4636-a828-76918a437170
 # ╟─faef0439-9571-463a-adfa-714b6294d6c4
-# ╠═020c9480-3b26-401b-bf93-394267caef55
 # ╠═e0d9f20d-7d0a-48c2-b10c-f0c251280a66
 # ╠═6d2ff265-8014-462e-982a-19bc1c19cef2
 # ╠═348a7004-6a30-4586-9f0d-6fa25827102f
 # ╠═8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
+# ╠═cf20b7c9-85bc-4f57-a74e-edcf77e3033d
