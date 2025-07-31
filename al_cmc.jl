@@ -34,7 +34,7 @@ begin
 	
 	set_theme!(ggthemr(my_theme))
 	update_theme!(
-		fontsize=20, linewidth=4, 
+		fontsize=20, linewidth=4, backgroundcolor=:white,
 		Axis=(bottomspinevisible=false, leftspinevisible=false, titlefont=:regular)
 	)
 	
@@ -45,60 +45,52 @@ end
 TableOfContents()
 
 # ╔═╡ 5a1768a0-865a-46ba-b70f-0194664d9d21
-md"# read data"
+md"# data
 
-# ╔═╡ d506f9e7-0d4d-40eb-a938-e1465c836222
-datafiles = [
-	"H2O-C10E8", "H2O-C14E6", "H2O-CTAB-bulk",	"H2O-SDS-bulk",
-	"H2O-C12E5", "H2O-C16E8", "H2O-OTG", "H2O-Tween20"
-]
+## surfactant selector
+"
 
-# ╔═╡ 5da8817c-3460-4c04-b408-aff71e4576d4
-md"
-🔨 subsample the data? check here. 👇
-
-$(@bind subsample_the_data CheckBox(default=false))"
-
-# ╔═╡ 17d43d3c-ad92-4447-adc1-dbd23001c45e
-md"❓ wut experiment?
-
-$(@bind i_expt Select(1:length(datafiles), default=3))"
-
-# ╔═╡ 5fc5c67a-9ed8-4d23-ab43-43b90f165229
-md"🚗 driving mode! $(@bind driving_mode CheckBox(default=true))"
-
-# ╔═╡ 8511592a-9059-43a7-b14c-941b66641cb0
-expt = driving_mode ? "OTG" : datafiles[i_expt]
+# ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
+surfactant = "Triton-X"# "OTG"
 
 # ╔═╡ 49de609d-4cc3-46d6-9141-5de0395088fb
 begin
-	function read_data(i::Int)
-		data = CSV.read("data/" * datafiles[i] * ".csv", DataFrame)
-		
-		rename!(data, "concentration_mol/m^3" => "[S] (mol/m³)")
-		rename!(data, "surften_N/m" => "γ (N/m)")
-		select!(data, ["[S] (mol/m³)", "γ (N/m)"])
-
-		@warn "assuming solvent is pure water."
-		γ₀ = 72.8 / 1000.0 # N/m
-		pushfirst!(data, Dict("[S] (mol/m³)" => 0.0, "γ (N/m)" => γ₀))
-		
-		return data
-	end
-
-	if driving_mode
-		data = DataFrame(
-			"[S] (mol/m³)" => [0.0, 30.0, 3.0, 12.0, 7.5, 8.5, 0.75, 8.75, 13.25],
-			"γ (N/m)" => [71.87, 29.54, 44.2325, 29.68, 32.42, 31.06, 55.2075, 29.89333, 29.567] / 1000.0
+	if surfactant == "OTG"
+		_data = DataFrame(
+			"[S] (mol/m³)" => [
+				0.0, 30.0, 3.0, 12.0, 7.5, 8.5, 0.75, 8.75, 13.25
+			],
+			"γ (N/m)" => [
+				71.87, 29.54, 44.2325, 29.68, 32.42, 31.06, 55.2075, 29.89333, 29.567
+			] / 1000.0
 		)
-	else
-		data = read_data(i_expt)
-		if subsample_the_data
-			# data = data[[1, 5, 18], :] # always include 1
-			data = data[[1, end], :]
-			#data = data[[1, 5, 18, end], :] # always include 1
-		end
+	elseif surfactant == "Triton-X"
+		_data = DataFrame(
+			"[S] (mol/m³)" => [
+				0.0, 10.0
+			],
+			"γ (N/m)" => [
+				71.87, 30.0
+			] / 1000.0
+		)
+		@warn "bogus data to get code going"
 	end
+end
+
+# ╔═╡ 19a915ce-9fc8-4965-8151-80b097fc3cfb
+md"
+## iteration selector
+
+🛻 data subset selector
+
+iters to include: $(@bind iteration PlutoUI.Select(0:nrow(_data)-2, default=nrow(_data)-2))
+"
+
+# ╔═╡ c451c216-4f29-4cf5-b367-fd486e634506
+if iteration == 0
+	data = _data[1:2, :]
+else
+	data = _data[1:2+iteration, :]
 end
 
 # ╔═╡ 842d16b1-26e3-4cd2-81ac-83ed6cd3b6b3
@@ -107,8 +99,30 @@ md"surface tension of pure solvent (water)."
 # ╔═╡ 533a51d0-3b42-42e0-b8db-1ab7c672f3df
 γ₀ = data[1, "γ (N/m)"]
 
+# ╔═╡ 8545bcda-beb7-48b7-80ee-157b8c64f6c2
+md"
+## fig saving convention
+
+save tag for all figures"
+
+# ╔═╡ 42c551c8-372e-430b-a756-10260d88936c
+begin
+	figdir = "figs"
+	if ! isdir(figdir)
+		mkdir(figdir)
+	end
+
+	fig_savetag = joinpath(figdir, "$(surfactant)_iter_$(iteration)_")
+end
+
 # ╔═╡ 874cc30e-0d7d-4a82-a523-c0caa9da4a59
-md"# surface tension vs surfactant concentration model"
+md"# surfactant adsorption isotherm model
+
+surface tension vs surfactant concentration
+
+Szyszkowski eqn.
+
+"
 
 # ╔═╡ b686a78a-fba7-41f5-b30f-621e3416ae96
 function γ_model(c, γ₀, a, K, c★)
@@ -129,7 +143,11 @@ md"# Bayesian inference
 md"🔍 search space"
 
 # ╔═╡ 67d23697-2d05-46f2-80e4-75c85c369f80
-c_max = 30.0 # maximum(read_data(i_expt)[:, "[S] (mol/m³)"]) * 1.1
+if surfactant == "OTG"
+	c_max = 30.0 # mol/m³
+elseif surfactant == "Triton-X"
+	c_max = 10.0 # mol/m³
+end
 
 # ╔═╡ 9b865570-b175-4fcb-a835-b8d6278c86ac
 md"📏 measurement error"
@@ -146,11 +164,15 @@ md"📏 measurement error"
 	#=
 	prior distributions
 	=#
-	# σ ~ Uniform(0.0, 0.002)
+	# σ ~ Uniform(0.0, 0.002) # if we wanted to infer measurement noise level
 	a ~ Uniform(0.001, 0.1)   # N/m
 	K ~ Uniform(0.0, 10000.0) # 1 / (mol / m³)
-	c★ ~ Uniform(0.0, c_max)  # mol / m³
-
+	if surfactant == "OTG"
+		c★ ~ Uniform(0.0, 30.0)  # mol / m³
+	elseif surfactant == "Triton-X"
+		c★ ~ LogUniform(0.001, 10)  # mol / m³
+	end
+	
 	#=
 	show data
 	=#
@@ -174,12 +196,13 @@ model = cmc_model(data)
 md"## sample chain"
 
 # ╔═╡ ea27c7f7-0073-4d0b-a171-7b404af1d0d6
-n_MC_samples = 25000
+n_MC_samples = 1000 # 25000
 
 # ╔═╡ 948a0fe4-e8ec-47e5-92a7-a66be020f0df
 begin
-	Random.seed!(45345635 + 1)
+	Random.seed!(45345635 + 1) # for reproducibility
 	@time chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
+	posterior_samples = DataFrame(chain)
 end
 
 # ╔═╡ a4f779ba-9410-4e67-840f-7114561f23b4
@@ -190,9 +213,6 @@ md"converge diagnostics"
 
 # ╔═╡ 52080b61-1e8d-4343-b79c-b3b39861e2c8
 gelmandiag(chain)
-
-# ╔═╡ bfa76e5b-e2c3-449b-8de0-cfe5df15330d
-posterior_samples = DataFrame(chain)
 
 # ╔═╡ fbe04777-fe1c-4f75-8059-80abd2da17da
 md"for initial guesses for chain starts when computing info gain"
@@ -207,10 +227,12 @@ end
 grab_posterior_sample(posterior_samples, params)
 
 # ╔═╡ fdd7373d-47e7-4f17-869f-03b2145c1c02
-md"## viz convergence"
+md"## viz convergence diagnostics"
 
 # ╔═╡ 14334653-2134-4782-a2d9-ef84837b2c45
-function draw_convergence_diagnostics(posterior_samples::DataFrame, param::String)
+function draw_convergence_diagnostics(
+	posterior_samples::DataFrame, param::String; save_the_fig::Bool=false
+)
 	n_chains = length(unique(posterior_samples[:, "chain"]))
 
 	println("mean: ", mean(posterior_samples[:, param]))
@@ -241,7 +263,9 @@ function draw_convergence_diagnostics(posterior_samples::DataFrame, param::Strin
 		)
 	end
 	axislegend(ax)
-	
+	if save_the_fig 
+		save(fig_savetag * "$(param)_convergence.pdf", fig)
+	end
 	fig
 end
 
@@ -275,92 +299,10 @@ end
 # ╔═╡ 5521e61b-7e34-4f72-882d-c7697463bef1
 posterior_c★_mode(posterior_samples)
 
-# ╔═╡ 06cf608e-782e-4c67-acb2-3aead3642704
-function viz(
-	data::DataFrame, posterior_samples::DataFrame;
-	αs::Union{Vector{Float64}, Nothing}=nothing, n_samples_plot::Int=50
-)
-	cs = range(0.0, c_max, length=100)
-	
-	fig = Figure(size=(500, isnothing(αs) ? 500 : 700))
-	ax = Axis(
-		fig[1, 1], xlabel="[surfactant] (mol/m³)", ylabel="surface tension (N/m)"
-	)
-	ax_t = Axis(
-		fig[0, 1], ylabel="posterior\ndensity\nof c★", title=expt
-	)
-	
-	linkxaxes!(ax, ax_t)
-	rowsize!(fig.layout, 1, Relative(isnothing(αs) ? 0.8 : 0.7))
-	
-	# posterior over c★
-	density!(ax_t, posterior_samples[:, "c★"], color=colors[3])
-
-	# posterior surface tension vs. surfactant conc. samples
-	for s = 1:n_samples_plot
-		i = sample(1:nrow(posterior_samples))
-		a, K, c★ = posterior_samples[i, ["a", "K", "c★"]]
-				
-		lines!(
-			ax, cs, γ_model.(cs, γ₀, a, K, c★), 
-			color=(colors[2], 0.1), label="posterior sample"
-		)
-	end
-	
-	# data
-	scatter!(
-		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], label="data",
-		color=colors[1]
-	)
-	errorbars!(
-		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], σ * ones(nrow(data)),
-		color=colors[1]
-	)
-	if driving_mode
-		annotation!(
-			ax, 
-			[(row["[S] (mol/m³)"], row["γ (N/m)"]) for row in eachrow(data)], 
-			text=vcat(["0", "0"], ["$i" for i = 1:(nrow(data)-2)]),
-			color=colors[6],
-			fontsize=12
-		)
-	end
-
-	# credible interval
-	lo, hi = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
-	ci_string = "90%" * @sprintf(" CI for c★:\n[%.2f, %.2f] mol/m³", lo, hi)
-	c★_mode = posterior_c★_mode(posterior_samples)
-	println("\tposterior mode: ", c★_mode)
-	println("\tCI width / posterior mode: ", (hi - lo) / c★_mode)
-	
-	hidexdecorations!(ax_t, grid=false)
-	axislegend(ax, ci_string, unique=true, titlefont=:regular)
-
-	if ! isnothing(αs)
-		ax_b = Axis(
-			fig[2, 1], ylabel="information\ngain", xlabel="[surfactant] (mmol/m³)"
-		)
-		hidexdecorations!(ax, grid=false)
-		linkxaxes!(ax_b, ax_t, ax)
-		scatterlines!(range(0.0, c_max, length=length(αs)), αs, color=colors[4])
-	end
-	xlims!(-0.5, c_max + 0.5)
-	savename = driving_mode ? "driving" : expt
-	if ! subsample_the_data
-		save(savename * "_fit_$(nrow(data)).pdf", fig)
-	else
-		save(savename * "_w_info_gain_$(nrow(data)).pdf", fig)
-	end
-	fig
-end
-
-# ╔═╡ e6ea645f-282c-4598-8755-be568d7b3d2e
-viz(data, posterior_samples, n_samples_plot=25)
-
 # ╔═╡ 49199459-f93c-4a23-8bed-1ea6b2fa2c94
-md"# entropy
+md"# entropy calculations
 
-computing the entropy of a distribution from samples.
+computing the entropy of a probability distribution from samples.
 
 💡 integrate a kernel density estimate of the pdf.
 "
@@ -406,7 +348,10 @@ md"entropy of c★ over the multiple chains"
 [entropy(Vector(chain[:c★][:, c])) for c = 1:n_chains]
 
 # ╔═╡ 64ebafed-7692-4fa1-bbed-fc2cde90af6b
-md"# acquisition"
+md"# acquisition: information gain
+
+calculate information gain about the CMC
+"
 
 # ╔═╡ f1ec7091-d47e-475d-885a-fcc96ceab663
 function α_ig(
@@ -484,17 +429,38 @@ end
 
 # ╔═╡ 3dd13aca-090d-4ba4-8086-85c56f7d0065
 md"
+## calculate info gain
 🔨 actually compute the information gradient acquisition function at each next surface concentration? check here. 👇
 
 $(@bind compute_α CheckBox(default=false))"
 
+# ╔═╡ fba7cd96-cf24-4df6-9673-1c05ed9fa67a
+surfactant
+
 # ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
 begin
-	# candidate experiments [mol/m³]
-	cs = 0:0.25:30.0 # nrow = 5
-	# cs = collect(range(0.0, c_max, length=61)) # nrow = 4
-	# cs = collect(range(0.0, c_max, length=31)) # nrow = 2, 3
-	# info gains
+	#=
+	candidate experiments
+	i.e. surfactant concentrations [mol/m³]
+	=#
+	if surfactant == "OTG"
+		if iteration in [0, 1]
+			cs = 0:1.0:c_max
+		elseif iteration == [2, 3]
+			cs = 0:0.5:c_max
+		else
+			cs = 0:0.25:c_max
+		end
+	elseif surfactant == "Triton-X"
+		if iteration in [0, 1]
+			cs = 10.0 .^ range(-2.0, 1.0, length=10)
+		end
+	end
+	# cs = collect(range(0.0, c_max, length=10)) # toy
+	
+	#=
+	info gains from each candidate expt
+	=#
 	αs = zeros(length(cs))
 	if compute_α
 		@progress for i = 1:length(cs)
@@ -502,19 +468,113 @@ begin
 				cs[i], data, posterior_samples, 
 				# n_samples=250, n_MC_samples=100
 				# n_samples=300, n_MC_samples=150,
-				n_samples=300, n_MC_samples=200,
+				# n_samples=300, n_MC_samples=200,
+				n_samples=50, n_MC_samples=50
 			)
 		end
 	end
 end
 
-# ╔═╡ e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
-if compute_α
-	viz(data, posterior_samples, αs=αs)
+# ╔═╡ 06cf608e-782e-4c67-acb2-3aead3642704
+function viz(
+	data::DataFrame, posterior_samples::DataFrame;
+	acq_scores::Union{DataFrame, Nothing}=nothing, n_samples_plot::Int=50
+)
+	cs = range(0.0, c_max, length=100)
+	
+	fig = Figure(size=(500, isnothing(acq_scores) ? 500 : 700))
+	ax = Axis(
+		fig[1, 1], xlabel="[surfactant] (mol/m³)", ylabel="surface tension (N/m)"
+	)
+	ax_t = Axis(
+		fig[0, 1], ylabel="posterior\ndensity\nof c★", title=surfactant
+	)
+	
+	linkxaxes!(ax, ax_t)
+	rowsize!(fig.layout, 1, Relative(isnothing(acq_scores) ? 0.8 : 0.7))
+	
+	# posterior over c★
+	density!(ax_t, posterior_samples[:, "c★"], color=colors[3])
+
+	# posterior surface tension vs. surfactant conc. samples
+	for s = 1:n_samples_plot
+		i = sample(1:nrow(posterior_samples))
+		a, K, c★ = posterior_samples[i, ["a", "K", "c★"]]
+				
+		lines!(
+			ax, cs, γ_model.(cs, γ₀, a, K, c★), 
+			color=(colors[2], 0.1), label="posterior sample"
+		)
+	end
+	
+	# data
+	scatter!(
+		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], label="data",
+		color=colors[1]
+	)
+	errorbars!(
+		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], σ * ones(nrow(data)),
+		color=colors[1]
+	)
+	annotation!(
+		ax, 
+		[(row["[S] (mol/m³)"], row["γ (N/m)"]) for row in eachrow(data)], 
+		text=vcat(["0", "0"], ["$i" for i = 1:(nrow(data)-2)]),
+		color=colors[6],
+		fontsize=12
+	)
+
+	# credible interval
+	lo, hi = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
+	ci_string = "90%" * @sprintf(" CI for c★:\n[%.2f, %.2f] mol/m³", lo, hi)
+	c★_mode = posterior_c★_mode(posterior_samples)
+	println("\tposterior mode: ", c★_mode)
+	println("\tCI width / posterior mode: ", (hi - lo) / c★_mode)
+	
+	hidexdecorations!(ax_t, grid=false)
+	axislegend(ax, ci_string, unique=true, titlefont=:regular)
+
+	if ! isnothing(acq_scores)
+		ax_b = Axis(
+			fig[2, 1], ylabel="information\ngain", xlabel="[surfactant] (mol/m³)"
+		)
+		hidexdecorations!(ax, grid=false)
+		linkxaxes!(ax_b, ax_t, ax)
+		scatterlines!(
+			acq_scores[:, "c [mol/m³]"], acq_scores[:, "info gain"], color=colors[4]
+		)
+	end
+	xlims!(-0.5, c_max + 0.5)
+	savename = surfactant
+	if ! isnothing(αs)
+		save(fig_savetag * "fit.pdf", fig)
+	else
+		save(fig_savetag * "fit_w_info_gain.pdf", fig)
+	end
+	fig
 end
 
-# ╔═╡ a77da5ad-264c-4704-b5b6-07deb93b4ea7
+# ╔═╡ e6ea645f-282c-4598-8755-be568d7b3d2e
+viz(data, posterior_samples, n_samples_plot=25)
+
+# ╔═╡ a17064d4-38ce-49b6-a34a-1f1de50f63b6
 begin
+	acq_scores = DataFrame("c [mol/m³]" => cs, "info gain" => αs) 
+			
+	sort(acq_scores, "info gain")
+end
+
+# ╔═╡ e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
+if compute_α
+	viz(data, posterior_samples, acq_scores=acq_scores)
+end
+
+# ╔═╡ 78f08666-d2a3-4bd0-9c92-ecb383eebb07
+md"## pick experiment"
+
+# ╔═╡ 5da23800-29e3-4323-905c-cb3a31a03e7f
+if compute_α
+	# pick c with largest info gain about CMC, that hasn't been done.
 	picked_c = 0.0
 	for i in sortperm(αs, rev=true)
 		c = cs[i]
@@ -523,36 +583,16 @@ begin
 			break
 		end
 	end
-	picked_c
+	
+	println(
+		"design: choose [S] (mol/m³) = ",
+		picked_c
+	)
 end
-
-# ╔═╡ 117135ab-1106-4713-bb6a-a644d2b62162
-cs[argmax(αs)]
-
-# ╔═╡ ab4c36dc-e63e-43c6-a31a-8bfb8ac62051
-data
-
-# ╔═╡ 84af26f3-ef8c-4437-968c-0a582cec16e1
-cs[sortperm(αs, rev=true)]
-
-# ╔═╡ 5da23800-29e3-4323-905c-cb3a31a03e7f
-sort(
-	DataFrame(
-		"c" => cs,
-		"α" => αs
-	), 
-	"α"
-)
-
-# ╔═╡ d62302f7-0fe7-4c44-80ca-862d3b38c870
-println(
-	"design: choose [S] (mol/m³) = ",
-	picked_c
-)
 
 # ╔═╡ 630c2ab7-fa68-4a74-8c31-48b68b70b37b
 md"
-# stock solution calculation
+## stock solution calculation
 
 $m V = m_s V_s$"
 
@@ -563,10 +603,17 @@ c_stock = 30.0 # mol/L
 V_sample = 25 # mL
 
 # ╔═╡ e62a4099-9f49-4636-a828-76918a437170
-println("stock solution needed: ", V_sample * picked_c / c_stock, " mL")
+if compute_α
+	println("stock solution needed: ", V_sample * picked_c / c_stock, " mL")
+end
 
 # ╔═╡ faef0439-9571-463a-adfa-714b6294d6c4
-md"# information dynamics"
+md"# post-AL analysis: info dynamics
+
+"
+
+# ╔═╡ dd46e6a0-4cf3-4b19-9137-df7c9e86fc14
+md"$(@bind run_info_dynamics PlutoUI.CheckBox(default=false))"
 
 # ╔═╡ e0d9f20d-7d0a-48c2-b10c-f0c251280a66
 function entropy_dynamics(data)
@@ -613,12 +660,14 @@ function entropy_dynamics(data)
 end
 
 # ╔═╡ 6d2ff265-8014-462e-982a-19bc1c19cef2
-info_dynamics, c★_posterior_samples = entropy_dynamics(data)
+if run_info_dynamics
+	info_dynamics, c★_posterior_samples = entropy_dynamics(data)
+end
 
 # ╔═╡ 348a7004-6a30-4586-9f0d-6fa25827102f
-begin
-	local fig = Figure()
-	local ax = Axis(
+function viz_entropy_over_iters(info_dynamics::DataFrame)
+	fig = Figure()
+	ax = Axis(
 		fig[1, 1], xlabel="iteration", ylabel="entropy, S(C★) [nat]", xticks=0:nrow(data),
 		title="entropy of posterior of CMC"
 	)
@@ -627,14 +676,19 @@ begin
 		markersize=20
 	)
 	ylims!(0, nothing)
-	save("entropy_over_iters.pdf", fig)
+	save(joinpath(figdir, surfactant * "_entropy_over_iters.pdf"), fig)
 	fig
 end
 
+# ╔═╡ 5e9b76da-4f51-420c-badf-8b29c33e5a58
+if run_info_dynamics
+	viz_entropy_over_iters(info_dynamics)
+end
+
 # ╔═╡ 8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
-begin
-	local fig = Figure()
-	local ax = Axis(
+function viz_posterior_cmc_over_iters(c★_posterior_samples)
+	fig = Figure()
+	ax = Axis(
 		fig[1, 1], xlabel="iteration", ylabel="CMC, c★ [mol/m³]", xticks=0:nrow(data),
 		title="posterior and credible interval for CMC"
 	)
@@ -654,12 +708,14 @@ begin
 	end
 	axislegend(unique=true)
 	ylims!(0, nothing)
-	save("posterior_over_iters.pdf", fig)
+	save(joinpath(figdir, surfactant * "posterior_over_iters.pdf"), fig)
 	fig
 end
 
 # ╔═╡ cf20b7c9-85bc-4f57-a74e-edcf77e3033d
-names(info_dynamics)
+if run_info_dynamics
+	viz_posterior_cmc_over_iters(c★_posterior_samples)
+end
 
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
@@ -667,14 +723,14 @@ names(info_dynamics)
 # ╠═0801bc21-de7c-4470-ae89-8725d90812e9
 # ╠═4cb87445-d372-4957-9cdb-4cd4bcc397de
 # ╟─5a1768a0-865a-46ba-b70f-0194664d9d21
-# ╠═d506f9e7-0d4d-40eb-a938-e1465c836222
-# ╟─5da8817c-3460-4c04-b408-aff71e4576d4
-# ╟─17d43d3c-ad92-4447-adc1-dbd23001c45e
-# ╟─5fc5c67a-9ed8-4d23-ab43-43b90f165229
-# ╠═8511592a-9059-43a7-b14c-941b66641cb0
+# ╠═fe1e0cc3-59ee-4887-8c90-af2d40b81892
 # ╠═49de609d-4cc3-46d6-9141-5de0395088fb
+# ╟─19a915ce-9fc8-4965-8151-80b097fc3cfb
+# ╠═c451c216-4f29-4cf5-b367-fd486e634506
 # ╟─842d16b1-26e3-4cd2-81ac-83ed6cd3b6b3
 # ╠═533a51d0-3b42-42e0-b8db-1ab7c672f3df
+# ╟─8545bcda-beb7-48b7-80ee-157b8c64f6c2
+# ╠═42c551c8-372e-430b-a756-10260d88936c
 # ╟─874cc30e-0d7d-4a82-a523-c0caa9da4a59
 # ╠═b686a78a-fba7-41f5-b30f-621e3416ae96
 # ╟─ca288f74-bc34-457f-8caa-ab1627f5c46f
@@ -690,7 +746,6 @@ names(info_dynamics)
 # ╠═a4f779ba-9410-4e67-840f-7114561f23b4
 # ╟─37dc8c68-2270-4226-b209-f3fab65b3b13
 # ╠═52080b61-1e8d-4343-b79c-b3b39861e2c8
-# ╠═bfa76e5b-e2c3-449b-8de0-cfe5df15330d
 # ╟─fbe04777-fe1c-4f75-8059-80abd2da17da
 # ╠═52dc4eb7-702c-4c1f-967d-34c431b74436
 # ╠═34b9ba4a-5a24-48c1-9cbe-5f4084b501ed
@@ -717,21 +772,21 @@ names(info_dynamics)
 # ╟─1b92732c-e918-41d1-b422-822794f850e5
 # ╠═48e51f57-3d7e-4096-b5c2-67a2244ba2e9
 # ╟─3dd13aca-090d-4ba4-8086-85c56f7d0065
+# ╠═fba7cd96-cf24-4df6-9673-1c05ed9fa67a
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
+# ╠═a17064d4-38ce-49b6-a34a-1f1de50f63b6
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
-# ╠═a77da5ad-264c-4704-b5b6-07deb93b4ea7
-# ╠═117135ab-1106-4713-bb6a-a644d2b62162
-# ╠═ab4c36dc-e63e-43c6-a31a-8bfb8ac62051
-# ╠═84af26f3-ef8c-4437-968c-0a582cec16e1
+# ╟─78f08666-d2a3-4bd0-9c92-ecb383eebb07
 # ╠═5da23800-29e3-4323-905c-cb3a31a03e7f
-# ╠═d62302f7-0fe7-4c44-80ca-862d3b38c870
 # ╟─630c2ab7-fa68-4a74-8c31-48b68b70b37b
 # ╠═c24c3e26-f940-4a8c-a88d-26a619415427
 # ╠═a6d7623e-350d-4e36-88db-89adf99043a9
 # ╠═e62a4099-9f49-4636-a828-76918a437170
 # ╟─faef0439-9571-463a-adfa-714b6294d6c4
+# ╟─dd46e6a0-4cf3-4b19-9137-df7c9e86fc14
 # ╠═e0d9f20d-7d0a-48c2-b10c-f0c251280a66
 # ╠═6d2ff265-8014-462e-982a-19bc1c19cef2
 # ╠═348a7004-6a30-4586-9f0d-6fa25827102f
+# ╠═5e9b76da-4f51-420c-badf-8b29c33e5a58
 # ╠═8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
 # ╠═cf20b7c9-85bc-4f57-a74e-edcf77e3033d
