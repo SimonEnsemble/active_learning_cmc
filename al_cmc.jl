@@ -51,7 +51,8 @@ md"# data
 "
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-surfactant = "Triton-X"# "OTG"
+surfactant = "Triton-X-100"
+# surfactant = "OTG"
 
 # ╔═╡ 49de609d-4cc3-46d6-9141-5de0395088fb
 begin
@@ -64,16 +65,15 @@ begin
 				71.87, 29.54, 44.2325, 29.68, 32.42, 31.06, 55.2075, 29.89333, 29.567
 			] / 1000.0
 		)
-	elseif surfactant == "Triton-X"
+	elseif surfactant == "Triton-X-100"
 		_data = DataFrame(
 			"[S] (mol/m³)" => [
 				0.0, 10.0
 			],
 			"γ (N/m)" => [
-				71.87, 30.0
+				71.73, 31.573
 			] / 1000.0
 		)
-		@warn "bogus data to get code going"
 	end
 end
 
@@ -145,7 +145,7 @@ md"🔍 search space"
 # ╔═╡ 67d23697-2d05-46f2-80e4-75c85c369f80
 if surfactant == "OTG"
 	c_max = 30.0 # mol/m³
-elseif surfactant == "Triton-X"
+elseif surfactant == "Triton-X-100"
 	c_max = 10.0 # mol/m³
 end
 
@@ -159,24 +159,24 @@ md"📏 measurement error"
 @model function cmc_model(data::DataFrame)
 	# begin with pure solvent so γ₀ doesn't need inferred
 	@assert data[1, "[S] (mol/m³)"] == 0.0
-	γ₀ = data[1, "γ (N/m)"]
 		
 	#=
 	prior distributions
 	=#
+	γ₀ ~ Normal(data[1, "γ (N/m)"], σ)
 	# σ ~ Uniform(0.0, 0.002) # if we wanted to infer measurement noise level
 	a ~ Uniform(0.001, 0.1)   # N/m
 	K ~ Uniform(0.0, 10000.0) # 1 / (mol / m³)
 	if surfactant == "OTG"
 		c★ ~ Uniform(0.0, 30.0)  # mol / m³
-	elseif surfactant == "Triton-X"
+	elseif surfactant == "Triton-X-100"
 		c★ ~ LogUniform(0.001, 10)  # mol / m³
 	end
 	
 	#=
 	show data
 	=#
-	for i = 1:nrow(data)
+	for i = 2:nrow(data)
 		# surfactant concentration
 		cᵢ = data[i, "[S] (mol/m³)"]
 		
@@ -196,11 +196,11 @@ model = cmc_model(data)
 md"## sample chain"
 
 # ╔═╡ ea27c7f7-0073-4d0b-a171-7b404af1d0d6
-n_MC_samples = 1000 # 25000
+n_MC_samples = 25000
 
 # ╔═╡ 948a0fe4-e8ec-47e5-92a7-a66be020f0df
 begin
-	Random.seed!(45345635 + 1) # for reproducibility
+	Random.seed!(45345635 + 1 + 1) # for reproducibility
 	@time chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
 	posterior_samples = DataFrame(chain)
 end
@@ -274,6 +274,9 @@ if :σ in names(posterior_samples)
 	draw_convergence_diagnostics(posterior_samples, "σ")
 end
 
+# ╔═╡ 4b298c39-1506-4f07-bf61-21bb32b8d31f
+draw_convergence_diagnostics(posterior_samples, "γ₀")
+
 # ╔═╡ 6c255255-f3b4-4112-b06b-7583781eb69e
 draw_convergence_diagnostics(posterior_samples, "c★")
 
@@ -307,8 +310,20 @@ computing the entropy of a probability distribution from samples.
 💡 integrate a kernel density estimate of the pdf.
 "
 
+# ╔═╡ f571f7f7-928a-4908-9a18-9cf90b3466d6
+if surfactant == "Triton-X-100"
+	entropy_of_log10 = true
+else
+	entropy_of_log10 = false
+end
+
 # ╔═╡ 192b5353-c0d5-457a-bf59-579709d8f2ec
-function entropy(xs::Vector{Float64})
+function entropy(_xs::Vector{Float64}, log_transform_first::Bool=entropy_of_log10)
+	if log_transform_first
+		xs = log10.(_xs)
+	else
+		xs = _xs
+	end
 	# integration bounds
 	xmin = minimum(xs) - std(xs)
 	xmax = maximum(xs) + std(xs)
@@ -336,7 +351,7 @@ end
 begin
 	# test with entropy of a Gaussian
 	local σ = 2.0
-	local H̃ = entropy(σ * randn(100000))
+	local H̃ = entropy(σ * randn(100000), false)
 	local H = 1/2 * (1 + log(2 * π * σ ^ 2))
 	@test isapprox(H, H̃, atol=0.01)
 end
@@ -344,8 +359,23 @@ end
 # ╔═╡ aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
 md"entropy of c★ over the multiple chains"
 
+# ╔═╡ 47ab5a7c-62da-4829-b658-214e843fc30b
+hist(
+	log10.([rand(LogUniform(0.001, 10.0)) for i = 1:1000]),
+	axis=(; title="initial prior c★", xlabel="c★ [mol/m³]", ylabel="density")
+)
+
+# ╔═╡ 64b3b08d-733d-4cbb-b488-7a54778a4980
+hist(
+	entropy_of_log10 ? log10.(posterior_samples[:, "c★"]) : posterior_samples[:, "c★"],
+	axis=(; title="posterior c★", xlabel="c★ [mol/m³]", ylabel="density")
+)
+
 # ╔═╡ fa9012a4-24f4-4358-92b3-74cb37270d31
 [entropy(Vector(chain[:c★][:, c])) for c = 1:n_chains]
+
+# ╔═╡ 6b665273-a5bc-4972-9f24-3ffa47a477da
+# S= 1.3
 
 # ╔═╡ 64ebafed-7692-4fa1-bbed-fc2cde90af6b
 md"# acquisition: information gain
@@ -366,7 +396,7 @@ function α_ig(
 		sample from posterior
 		=#
 		i = sample(1:nrow(posterior_samples))
-		a, K, c★ = posterior_samples[i, ["a", "K", "c★"]]
+		a, K, c★, γ₀ = posterior_samples[i, ["a", "K", "c★", "γ₀"]]
 	
 		#=
 		fantasize a measurement at this c
@@ -414,7 +444,7 @@ end
 md"time a single run"
 
 # ╔═╡ fc333a63-86f1-43d6-9f7e-1f43bd926caf
-@time α_ig(1.0, data, posterior_samples, n_samples=200, n_MC_samples=50)
+@time α_ig(1.0, data, posterior_samples, n_samples=100, n_MC_samples=100)
 
 # ╔═╡ 1b92732c-e918-41d1-b422-822794f850e5
 md"
@@ -451,9 +481,9 @@ begin
 		else
 			cs = 0:0.25:c_max
 		end
-	elseif surfactant == "Triton-X"
+	elseif surfactant == "Triton-X-100"
 		if iteration in [0, 1]
-			cs = 10.0 .^ range(-2.0, 1.0, length=10)
+			cs = 10.0 .^ range(-3.0, 1.0, length=10)
 		end
 	end
 	# cs = collect(range(0.0, c_max, length=10)) # toy
@@ -466,10 +496,10 @@ begin
 		@progress for i = 1:length(cs)
 			αs[i] = α_ig(
 				cs[i], data, posterior_samples, 
-				# n_samples=250, n_MC_samples=100
+				n_samples=250, n_MC_samples=100
 				# n_samples=300, n_MC_samples=150,
 				# n_samples=300, n_MC_samples=200,
-				n_samples=50, n_MC_samples=50
+				#n_samples=300, n_MC_samples=200
 			)
 		end
 	end
@@ -478,11 +508,12 @@ end
 # ╔═╡ 06cf608e-782e-4c67-acb2-3aead3642704
 function viz(
 	data::DataFrame, posterior_samples::DataFrame;
-	acq_scores::Union{DataFrame, Nothing}=nothing, n_samples_plot::Int=50
+	acq_scores::Union{DataFrame, Nothing}=nothing, n_samples_plot::Int=50,
+	x_pseudo_logscale::Bool=false
 )
-	cs = range(0.0, c_max, length=100)
+	cs = range(0.0001, c_max, length=100)
 	
-	fig = Figure(size=(500, isnothing(acq_scores) ? 500 : 700))
+	fig = Figure()
 	ax = Axis(
 		fig[1, 1], xlabel="[surfactant] (mol/m³)", ylabel="surface tension (N/m)"
 	)
@@ -544,7 +575,18 @@ function viz(
 			acq_scores[:, "c [mol/m³]"], acq_scores[:, "info gain"], color=colors[4]
 		)
 	end
+	
+	if x_pseudo_logscale
+		xlims!(ax, 0.001, 10.0)
+		ax.xscale = Makie.pseudolog10
+		ax_t.xscale = Makie.pseudolog10
+		if ! isnothing(acq_scores)
+			ax_b.xscale = Makie.pseudolog10
+		end
+	end
+		
 	xlims!(-0.5, c_max + 0.5)
+	
 	savename = surfactant
 	if ! isnothing(αs)
 		save(fig_savetag * "fit.pdf", fig)
@@ -555,7 +597,7 @@ function viz(
 end
 
 # ╔═╡ e6ea645f-282c-4598-8755-be568d7b3d2e
-viz(data, posterior_samples, n_samples_plot=25)
+viz(data, posterior_samples, n_samples_plot=25, x_pseudo_logscale=false)
 
 # ╔═╡ a17064d4-38ce-49b6-a34a-1f1de50f63b6
 begin
@@ -566,7 +608,7 @@ end
 
 # ╔═╡ e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
 if compute_α
-	viz(data, posterior_samples, acq_scores=acq_scores)
+	viz(data, posterior_samples, acq_scores=acq_scores, x_pseudo_logscale=true)
 end
 
 # ╔═╡ 78f08666-d2a3-4bd0-9c92-ecb383eebb07
@@ -597,7 +639,7 @@ md"
 $m V = m_s V_s$"
 
 # ╔═╡ c24c3e26-f940-4a8c-a88d-26a619415427
-c_stock = 30.0 # mol/L
+c_stock = 0.1 # mol/L
 
 # ╔═╡ a6d7623e-350d-4e36-88db-89adf99043a9
 V_sample = 25 # mL
@@ -752,6 +794,7 @@ end
 # ╟─fdd7373d-47e7-4f17-869f-03b2145c1c02
 # ╠═14334653-2134-4782-a2d9-ef84837b2c45
 # ╠═0ef63054-a677-4078-8795-0c1d7df85b80
+# ╠═4b298c39-1506-4f07-bf61-21bb32b8d31f
 # ╠═6c255255-f3b4-4112-b06b-7583781eb69e
 # ╠═9a3c24dc-3e90-4008-824e-5719bd74c1c5
 # ╠═9ad673c6-68ae-4b2e-bbc3-74d42bd44fd6
@@ -761,10 +804,14 @@ end
 # ╠═06cf608e-782e-4c67-acb2-3aead3642704
 # ╠═e6ea645f-282c-4598-8755-be568d7b3d2e
 # ╟─49199459-f93c-4a23-8bed-1ea6b2fa2c94
+# ╠═f571f7f7-928a-4908-9a18-9cf90b3466d6
 # ╠═192b5353-c0d5-457a-bf59-579709d8f2ec
 # ╠═085d09d1-375f-4d97-92c1-73161383c0cf
 # ╟─aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
+# ╠═47ab5a7c-62da-4829-b658-214e843fc30b
+# ╠═64b3b08d-733d-4cbb-b488-7a54778a4980
 # ╠═fa9012a4-24f4-4358-92b3-74cb37270d31
+# ╠═6b665273-a5bc-4972-9f24-3ffa47a477da
 # ╟─64ebafed-7692-4fa1-bbed-fc2cde90af6b
 # ╠═f1ec7091-d47e-475d-885a-fcc96ceab663
 # ╟─e759e6f4-3366-4d94-93fc-1f6f5cb59e2b
