@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.5
 
 using Markdown
 using InteractiveUtils
@@ -68,10 +68,10 @@ begin
 	elseif surfactant == "Triton-X-100"
 		_data = DataFrame(
 			"[S] (mol/m³)" => [
-				0.0, 10.0, 0.001, 0.06, 0.1, 0.215
+				0.0, 10.0, 0.001, 0.06, 0.1, 0.215, 0.289
 			],
 			"γ (N/m)" => [
-				71.73, 31.573, 71.3866, 46.3233, 42.81, 37.296
+				71.73, 31.573, 71.3866, 46.3233, 42.81, 37.296, 35.01
 			] / 1000.0
 		)
 	end
@@ -592,6 +592,8 @@ begin
 			cs = 10.0 .^ range(-3.0, 1.0, length=25)
 		elseif iteration in [4]
 			cs = 10.0 .^ range(-3.0, 1.0, length=40)
+		elseif iteration in [5]
+			cs = 10.0 .^ range(-3.0, 1.0, length=50)
 		end
 	end
 	# cs = collect(range(0.0, c_max, length=10)) # toy
