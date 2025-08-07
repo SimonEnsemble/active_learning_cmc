@@ -68,10 +68,10 @@ begin
 	elseif surfactant == "Triton-X-100"
 		_data = DataFrame(
 			"[S] (mol/m³)" => [
-				0.0, 10.0
+				0.0, 10.0, 0.001, 0.06, 0.1, 0.215
 			],
 			"γ (N/m)" => [
-				71.73, 31.573
+				71.73, 31.573, 71.3866, 46.3233, 42.81, 37.296
 			] / 1000.0
 		)
 	end
@@ -302,209 +302,6 @@ end
 # ╔═╡ 5521e61b-7e34-4f72-882d-c7697463bef1
 posterior_c★_mode(posterior_samples)
 
-# ╔═╡ 49199459-f93c-4a23-8bed-1ea6b2fa2c94
-md"# entropy calculations
-
-computing the entropy of a probability distribution from samples.
-
-💡 integrate a kernel density estimate of the pdf.
-"
-
-# ╔═╡ f571f7f7-928a-4908-9a18-9cf90b3466d6
-if surfactant == "Triton-X-100"
-	entropy_of_log10 = true
-else
-	entropy_of_log10 = false
-end
-
-# ╔═╡ 192b5353-c0d5-457a-bf59-579709d8f2ec
-function entropy(_xs::Vector{Float64}, log_transform_first::Bool=entropy_of_log10)
-	if log_transform_first
-		xs = log10.(_xs)
-	else
-		xs = _xs
-	end
-	# integration bounds
-	xmin = minimum(xs) - std(xs)
-	xmax = maximum(xs) + std(xs)
-
-	# kernel density estimation
-	the_kde = kde(xs)
-	ρ = x -> pdf(the_kde, x)
-
-	# integrate density to get entropy
-	function S_integrand(x)
-		the_ρ = ρ(x)
-		if the_ρ > 0.0
-			return - the_ρ * log(the_ρ)
-		else
-			return 0.0
-		end
-	end
-	
-	S = hquadrature(S_integrand, xmin, xmax, reltol=1e-4, maxevals=250)[1]
-
-	return S
-end
-
-# ╔═╡ 085d09d1-375f-4d97-92c1-73161383c0cf
-begin
-	# test with entropy of a Gaussian
-	local σ = 2.0
-	local H̃ = entropy(σ * randn(100000), false)
-	local H = 1/2 * (1 + log(2 * π * σ ^ 2))
-	@test isapprox(H, H̃, atol=0.01)
-end
-
-# ╔═╡ aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
-md"entropy of c★ over the multiple chains"
-
-# ╔═╡ 47ab5a7c-62da-4829-b658-214e843fc30b
-hist(
-	log10.([rand(LogUniform(0.001, 10.0)) for i = 1:1000]),
-	axis=(; title="initial prior c★", xlabel="c★ [mol/m³]", ylabel="density")
-)
-
-# ╔═╡ 64b3b08d-733d-4cbb-b488-7a54778a4980
-hist(
-	entropy_of_log10 ? log10.(posterior_samples[:, "c★"]) : posterior_samples[:, "c★"],
-	axis=(; title="posterior c★", xlabel="c★ [mol/m³]", ylabel="density")
-)
-
-# ╔═╡ fa9012a4-24f4-4358-92b3-74cb37270d31
-[entropy(Vector(chain[:c★][:, c])) for c = 1:n_chains]
-
-# ╔═╡ 6b665273-a5bc-4972-9f24-3ffa47a477da
-# S= 1.3
-
-# ╔═╡ 64ebafed-7692-4fa1-bbed-fc2cde90af6b
-md"# acquisition: information gain
-
-calculate information gain about the CMC
-"
-
-# ╔═╡ f1ec7091-d47e-475d-885a-fcc96ceab663
-function α_ig(
-	c, data::DataFrame, posterior_samples::DataFrame; 
-	n_samples::Int=100, n_MC_samples::Int=100
-)
-	Random.seed!(45345635)
-	Logging.disable_logging(Logging.Info)  # Disables info-level messages
-	S_news = zeros(n_samples)
-	for s = 1:n_samples
-		#=
-		sample from posterior
-		=#
-		i = sample(1:nrow(posterior_samples))
-		a, K, c★, γ₀ = posterior_samples[i, ["a", "K", "c★", "γ₀"]]
-	
-		#=
-		fantasize a measurement at this c
-		=#
-		γ_obs = γ_model(c, γ₀, a, K, c★) + randn() * σ
-	
-		# augment data with fantasized data
-		new_data = deepcopy(data)
-		push!(new_data, Dict("[S] (mol/m³)" => c, "γ (N/m)" => γ_obs))
-	
-		#=
-		update posterior with fantasized data point
-		=#
-		new_model = cmc_model(new_data)
-		initial_params = [
-			grab_posterior_sample(posterior_samples, params) for c = 1:n_chains
-		]
-		new_chain = DataFrame(
-			sample(
-				new_model, NUTS(), MCMCThreads(), 
-				round(Int, n_MC_samples / n_chains), n_chains, 
-				progress=false,
-				initial_params=initial_params
-			)
-		)
-
-		#=
-		compute entropy of c★ in new posterior
-		=#
-		S_news[s] = entropy(new_chain[:, "c★"])
-	end
-	
-	#=
-	compute current and average of new entropies of c★
-	=#
-	S_now = entropy(posterior_samples[:, "c★"])
-	𝔼_S_next = mean(S_news)
-	
-	Logging.disable_logging(Logging.BelowMinLevel) # don't wanna disable logging
-	
-	return S_now - 𝔼_S_next
-end
-
-# ╔═╡ e759e6f4-3366-4d94-93fc-1f6f5cb59e2b
-md"time a single run"
-
-# ╔═╡ fc333a63-86f1-43d6-9f7e-1f43bd926caf
-@time α_ig(1.0, data, posterior_samples, n_samples=100, n_MC_samples=100)
-
-# ╔═╡ 1b92732c-e918-41d1-b422-822794f850e5
-md"
-🧪 check if the estimate of the information gradient via sampling is consisistent over multiple runs, so we can assess if we have a sufficient number of samples? check here. 👇
-
-$(@bind check_sampling CheckBox(default=false))"
-
-# ╔═╡ 48e51f57-3d7e-4096-b5c2-67a2244ba2e9
-if check_sampling
-	[α_ig(1.0, data, posterior_samples, n_samples=200, n_MC_samples=50) for i = 1:4]
-end
-
-# ╔═╡ 3dd13aca-090d-4ba4-8086-85c56f7d0065
-md"
-## calculate info gain
-🔨 actually compute the information gradient acquisition function at each next surface concentration? check here. 👇
-
-$(@bind compute_α CheckBox(default=false))"
-
-# ╔═╡ fba7cd96-cf24-4df6-9673-1c05ed9fa67a
-surfactant
-
-# ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
-begin
-	#=
-	candidate experiments
-	i.e. surfactant concentrations [mol/m³]
-	=#
-	if surfactant == "OTG"
-		if iteration in [0, 1]
-			cs = 0:1.0:c_max
-		elseif iteration == [2, 3]
-			cs = 0:0.5:c_max
-		else
-			cs = 0:0.25:c_max
-		end
-	elseif surfactant == "Triton-X-100"
-		if iteration in [0, 1]
-			cs = 10.0 .^ range(-3.0, 1.0, length=10)
-		end
-	end
-	# cs = collect(range(0.0, c_max, length=10)) # toy
-	
-	#=
-	info gains from each candidate expt
-	=#
-	αs = zeros(length(cs))
-	if compute_α
-		@progress for i = 1:length(cs)
-			αs[i] = α_ig(
-				cs[i], data, posterior_samples, 
-				n_samples=250, n_MC_samples=100
-				# n_samples=300, n_MC_samples=150,
-				# n_samples=300, n_MC_samples=200,
-				#n_samples=300, n_MC_samples=200
-			)
-		end
-	end
-end
-
 # ╔═╡ 06cf608e-782e-4c67-acb2-3aead3642704
 function viz(
 	data::DataFrame, posterior_samples::DataFrame;
@@ -579,16 +376,18 @@ function viz(
 	if x_pseudo_logscale
 		xlims!(ax, 0.001, 10.0)
 		ax.xscale = Makie.pseudolog10
+		ax.xticks = [0, 0.001, 0.01, 0.1, 1, 10]
 		ax_t.xscale = Makie.pseudolog10
 		if ! isnothing(acq_scores)
 			ax_b.xscale = Makie.pseudolog10
+			ax_b.xticks = [0, 0.001, 0.01, 0.1, 1, 10]
 		end
 	end
 		
 	xlims!(-0.5, c_max + 0.5)
 	
 	savename = surfactant
-	if ! isnothing(αs)
+	if ! isnothing(acq_scores)
 		save(fig_savetag * "fit.pdf", fig)
 	else
 		save(fig_savetag * "fit_w_info_gain.pdf", fig)
@@ -598,6 +397,232 @@ end
 
 # ╔═╡ e6ea645f-282c-4598-8755-be568d7b3d2e
 viz(data, posterior_samples, n_samples_plot=25, x_pseudo_logscale=false)
+
+# ╔═╡ 49199459-f93c-4a23-8bed-1ea6b2fa2c94
+md"# entropy calculations
+
+computing the entropy of a probability distribution from samples.
+
+💡 integrate a kernel density estimate of the pdf.
+"
+
+# ╔═╡ f571f7f7-928a-4908-9a18-9cf90b3466d6
+if surfactant == "Triton-X-100"
+	entropy_of_log10 = true
+else
+	entropy_of_log10 = false
+end
+
+# ╔═╡ 192b5353-c0d5-457a-bf59-579709d8f2ec
+function entropy(_xs::Vector{Float64}, log_transform_first::Bool=entropy_of_log10)
+	if log_transform_first
+		xs = log10.(_xs)
+	else
+		xs = _xs
+	end
+	# integration bounds
+	xmin = minimum(xs) - std(xs)
+	xmax = maximum(xs) + std(xs)
+
+	# kernel density estimation
+	the_kde = kde(xs)
+	ρ = x -> pdf(the_kde, x)
+
+	# integrate density to get entropy
+	function S_integrand(x)
+		the_ρ = ρ(x)
+		if the_ρ > 0.0
+			return - the_ρ * log(the_ρ)
+		else
+			return 0.0
+		end
+	end
+	
+	S = hquadrature(S_integrand, xmin, xmax, reltol=1e-4, maxevals=250)[1]
+
+	return S
+end
+
+# ╔═╡ 085d09d1-375f-4d97-92c1-73161383c0cf
+begin
+	# test with entropy of a Gaussian
+	local σ = 2.0
+	local H̃ = entropy(σ * randn(100000), false)
+	local H = 1/2 * (1 + log(2 * π * σ ^ 2))
+	@test isapprox(H, H̃, atol=0.01)
+end
+
+# ╔═╡ aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
+md"entropy of c★ over the multiple chains"
+
+# ╔═╡ 47ab5a7c-62da-4829-b658-214e843fc30b
+hist(
+	log10.([rand(LogUniform(0.001, 10.0)) for i = 1:1000]),
+	axis=(; title="initial prior c★", xlabel=entropy_of_log10 ? "log₁₀(c★) [mol/m³]" : "c★ [mol/m³]", ylabel="density")
+)
+
+# ╔═╡ 64b3b08d-733d-4cbb-b488-7a54778a4980
+hist(
+	entropy_of_log10 ? log10.(posterior_samples[:, "c★"]) : posterior_samples[:, "c★"],
+	axis=(; title="posterior c★", xlabel=entropy_of_log10 ? "log₁₀(c★) [mol/m³]" : "c★ [mol/m³]", ylabel="density")
+)
+
+# ╔═╡ 6a242467-de3c-45c7-b220-f5bd8a59679c
+hist(
+	posterior_samples[:, "c★"],
+	axis=(; title="posterior c★", xlabel="c★ [mol/m³]", ylabel="density")
+)
+
+# ╔═╡ fa9012a4-24f4-4358-92b3-74cb37270d31
+[entropy(Vector(chain[:c★][:, c])) for c = 1:n_chains]
+
+# ╔═╡ 64ebafed-7692-4fa1-bbed-fc2cde90af6b
+md"# acquisition: information gain
+
+calculate information gain about the CMC
+"
+
+# ╔═╡ f1ec7091-d47e-475d-885a-fcc96ceab663
+function α_ig(
+	c, data::DataFrame, posterior_samples::DataFrame; 
+	n_samples::Int=100, n_MC_samples::Int=100
+)
+	Random.seed!(45345635)
+	Logging.disable_logging(Logging.Info)  # Disables info-level messages
+	S_news = zeros(n_samples)
+	for s = 1:n_samples
+		#=
+		sample from posterior
+		=#
+		i = sample(1:nrow(posterior_samples))
+		a, K, c★, γ₀ = posterior_samples[i, ["a", "K", "c★", "γ₀"]]
+	
+		#=
+		fantasize a measurement at this c
+		=#
+		γ_obs = γ_model(c, γ₀, a, K, c★) + randn() * σ
+	
+		# augment data with fantasized data
+		new_data = deepcopy(data)
+		push!(new_data, Dict("[S] (mol/m³)" => c, "γ (N/m)" => γ_obs))
+	
+		#=
+		update posterior with fantasized data point
+		=#
+		new_model = cmc_model(new_data)
+		initial_params = [
+			grab_posterior_sample(posterior_samples, params) for c = 1:n_chains
+		]
+		new_chain = DataFrame(
+			sample(
+				new_model, NUTS(), MCMCThreads(), 
+				round(Int, n_MC_samples / n_chains), n_chains, 
+				progress=false,
+				initial_params=initial_params
+			)
+		)
+
+		#=
+		compute entropy of c★ in new posterior
+		=#
+		S_news[s] = entropy(new_chain[:, "c★"])
+	end
+	
+	#=
+	compute current and average of new entropies of c★
+	=#
+	S_now = entropy(posterior_samples[:, "c★"])
+	𝔼_S_next = mean(S_news)
+	
+	Logging.disable_logging(Logging.BelowMinLevel) # don't wanna disable logging
+	
+	return S_now - 𝔼_S_next
+end
+
+# ╔═╡ e759e6f4-3366-4d94-93fc-1f6f5cb59e2b
+md"time a single run"
+
+# ╔═╡ fc333a63-86f1-43d6-9f7e-1f43bd926caf
+# @time α_ig(1.0, data, posterior_samples, n_samples=100, n_MC_samples=100)
+
+# ╔═╡ 1b92732c-e918-41d1-b422-822794f850e5
+md"
+🧪 check if the estimate of the information gradient via sampling is consisistent over multiple runs, so we can assess if we have a sufficient number of samples? check here. 👇
+
+$(@bind check_sampling CheckBox(default=false))"
+
+# ╔═╡ 48e51f57-3d7e-4096-b5c2-67a2244ba2e9
+if check_sampling
+	[α_ig(1.0, data, posterior_samples, n_samples=200, n_MC_samples=50) for i = 1:4]
+end
+
+# ╔═╡ 3dd13aca-090d-4ba4-8086-85c56f7d0065
+md"
+## calculate info gain
+🔨 actually compute the information gradient acquisition function at each next surface concentration? check here. 👇
+
+$(@bind compute_α CheckBox(default=false))"
+
+# ╔═╡ fba7cd96-cf24-4df6-9673-1c05ed9fa67a
+surfactant
+
+# ╔═╡ e9f5ecbb-b7c9-46f7-bc5a-dc5b468a742a
+data
+
+# ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
+begin
+	#=
+	candidate experiments
+	i.e. surfactant concentrations [mol/m³]
+	=#
+	if surfactant == "OTG"
+		if iteration in [0, 1]
+			cs = 0:1.0:c_max
+		elseif iteration == [2, 3]
+			cs = 0:0.5:c_max
+		else
+			cs = 0:0.25:c_max
+		end
+	elseif surfactant == "Triton-X-100"
+		if iteration in [0, 1]
+			cs = 10.0 .^ range(-3.0, 1.0, length=10)
+		elseif iteration in [2]
+			cs = 10.0 .^ range(-3.0, 1.0, length=15)
+		elseif iteration in [3]
+			cs = 10.0 .^ range(-3.0, 1.0, length=25)
+		elseif iteration in [4]
+			cs = 10.0 .^ range(-3.0, 1.0, length=40)
+		end
+	end
+	# cs = collect(range(0.0, c_max, length=10)) # toy
+	
+	#=
+	info gains from each candidate expt
+	=#
+	αs = zeros(length(cs))
+	if compute_α
+		@progress for i = 1:length(cs)
+			αs[i] = α_ig(
+				cs[i], data, posterior_samples, 
+				n_samples=250, n_MC_samples=100
+				# n_samples=300, n_MC_samples=150,
+				# n_samples=300, n_MC_samples=200,
+				#n_samples=300, n_MC_samples=200
+			)
+		end
+	end
+end
+
+# ╔═╡ 7d58661e-c6fe-420b-ba2f-3c9afb588ef0
+begin
+	local fig = Figure()
+	local ax = Axis(
+		fig[1, 1], title="posterior c★", xlabel="c★ [mol/m³]", ylabel="density"
+	)
+	hist!(posterior_samples[:, "c★"])
+	vlines!(cs[1:end-5], color="black")
+	fig
+end
 
 # ╔═╡ a17064d4-38ce-49b6-a34a-1f1de50f63b6
 begin
@@ -639,7 +664,7 @@ md"
 $m V = m_s V_s$"
 
 # ╔═╡ c24c3e26-f940-4a8c-a88d-26a619415427
-c_stock = 0.1 # mol/L
+c_stock = 10.0 # mol/L
 
 # ╔═╡ a6d7623e-350d-4e36-88db-89adf99043a9
 V_sample = 25 # mL
@@ -810,8 +835,8 @@ end
 # ╟─aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
 # ╠═47ab5a7c-62da-4829-b658-214e843fc30b
 # ╠═64b3b08d-733d-4cbb-b488-7a54778a4980
+# ╠═6a242467-de3c-45c7-b220-f5bd8a59679c
 # ╠═fa9012a4-24f4-4358-92b3-74cb37270d31
-# ╠═6b665273-a5bc-4972-9f24-3ffa47a477da
 # ╟─64ebafed-7692-4fa1-bbed-fc2cde90af6b
 # ╠═f1ec7091-d47e-475d-885a-fcc96ceab663
 # ╟─e759e6f4-3366-4d94-93fc-1f6f5cb59e2b
@@ -820,6 +845,8 @@ end
 # ╠═48e51f57-3d7e-4096-b5c2-67a2244ba2e9
 # ╟─3dd13aca-090d-4ba4-8086-85c56f7d0065
 # ╠═fba7cd96-cf24-4df6-9673-1c05ed9fa67a
+# ╠═e9f5ecbb-b7c9-46f7-bc5a-dc5b468a742a
+# ╠═7d58661e-c6fe-420b-ba2f-3c9afb588ef0
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
 # ╠═a17064d4-38ce-49b6-a34a-1f1de50f63b6
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
