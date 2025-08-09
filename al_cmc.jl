@@ -68,10 +68,10 @@ begin
 	elseif surfactant == "Triton-X-100"
 		_data = DataFrame(
 			"[S] (mol/m³)" => [
-				0.0, 10.0, 0.001, 0.06, 0.1, 0.215, 0.289, 0.8685
+				0.0, 10.0, 0.001, 0.06, 0.1, 0.215, 0.289, 0.8685, 0.3393
 			],
 			"γ (N/m)" => [
-				71.73, 31.573, 71.3866, 46.3233, 42.81, 37.296, 35.01, 31.70667
+				71.73, 31.573, 71.3866, 46.3233, 42.81, 37.296, 35.01, 31.70667, 33.50667
 			] / 1000.0
 		)
 	end
@@ -308,7 +308,7 @@ function viz(
 	acq_scores::Union{DataFrame, Nothing}=nothing, n_samples_plot::Int=50,
 	x_pseudo_logscale::Bool=false
 )
-	cs = range(0.0001, c_max, length=100)
+	cs = range(0.0001, c_max, length=500)
 	
 	fig = Figure()
 	ax = Axis(
@@ -592,7 +592,7 @@ begin
 			cs = 10.0 .^ range(-3.0, 1.0, length=25)
 		elseif iteration in [4]
 			cs = 10.0 .^ range(-3.0, 1.0, length=40)
-		elseif iteration in [5]
+		elseif iteration in [5, 6]
 			cs = 10.0 .^ range(-3.0, 1.0, length=50)
 		end
 	end
