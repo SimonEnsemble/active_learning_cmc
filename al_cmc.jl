@@ -30,19 +30,29 @@ begin
 	# modifying the plot scheme
 	# see here for other themes
 	#  https://makieorg.github.io/MakieThemes.jl/dev/themes/ggthemr/
-	local my_theme = :flat
+	local my_theme = :pale
 	
 	set_theme!(ggthemr(my_theme))
 	update_theme!(
-		fontsize=20, linewidth=4, backgroundcolor=:white,
-		Axis=(bottomspinevisible=false, leftspinevisible=false, titlefont=:regular)
+		fontsize=20, linewidth=4, #backgroundcolor=:white,
+		Axis=(; bottomspinevisible=false, leftspinevisible=false, 
+			titlefont=:regular)
 	)
 	
 	colors = parse.(Colorant, MakieThemes.GGThemr.ColorTheme[my_theme][:swatch])
 end
 
+# ╔═╡ 2806dc43-6fc4-49b8-b6d8-a0e2fd32d1f7
+Figure()
+
 # ╔═╡ 4cb87445-d372-4957-9cdb-4cd4bcc397de
 TableOfContents()
+
+# ╔═╡ cd6147e4-9785-4ee1-9454-2f4353dcca6c
+function draw_axes!(ax)
+	hlines!(ax, 0.0, color="black", linewidth=1)
+	vlines!(ax, 0.0, color="black", linewidth=1)
+end
 
 # ╔═╡ 5a1768a0-865a-46ba-b70f-0194664d9d21
 md"# data
@@ -242,7 +252,7 @@ function draw_convergence_diagnostics(
 	
 	# axes
 	ax = Axis(fig[1, 1], xlabel="iteration", ylabel=param)
-	ax_d = Axis(fig[1, 2], xlabel="density")
+	ax_d = Axis(fig[1, 2], xlabel="density", xticks=[0.0])
 
 	# axes stuff
 	linkyaxes!(ax, ax_d)
@@ -308,15 +318,25 @@ function viz(
 	acq_scores::Union{DataFrame, Nothing}=nothing, n_samples_plot::Int=50,
 	x_pseudo_logscale::Bool=false
 )
-	cs = range(0.0001, c_max, length=500)
+	cs = range(1e-6, c_max + 1.0, length=1000)
 	
-	fig = Figure()
+	fig = Figure(size=(600, 500))
 	ax = Axis(
-		fig[1, 1], xlabel="[surfactant] (mol/m³)", ylabel="surface tension (N/m)"
+		fig[1, 1], 
+		xlabel="[surfactant] (mol/m³)", 
+		ylabel="surface tension (N/m)",
+		xticks=range(0.0, 10.0, length=11)
 	)
 	ax_t = Axis(
-		fig[0, 1], ylabel="posterior\ndensity\nof c★", title=surfactant
+		fig[0, 1], 
+		ylabel=rich("posterior\ndensity\nof c", superscript("★")), 
+		title=surfactant, 
+		xticks=range(0.0, 10.0, length=11),
+		yticks=[0.0]
 	)
+
+	draw_axes!(ax)
+	draw_axes!(ax_t)
 	
 	linkxaxes!(ax, ax_t)
 	rowsize!(fig.layout, 1, Relative(isnothing(acq_scores) ? 0.8 : 0.7))
@@ -352,15 +372,34 @@ function viz(
 		fontsize=12
 	)
 
-	# credible interval
+	# credible interval and mode
 	lo, hi = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
-	ci_string = "90%" * @sprintf(" CI for c★:\n[%.2f, %.2f] mol/m³", lo, hi)
 	c★_mode = posterior_c★_mode(posterior_samples)
+	
+	ci_string = rich(
+		rich("posterior of c", font=:bold), 
+		superscript("★"), 
+		":\n",
+		"\t 90% " * @sprintf("CI: [%.2f, %.2f] mol/m³", lo, hi) * "\n" * @sprintf("\t mode: %.2f mol/m³", c★_mode)
+	)
+	
 	println("\tposterior mode: ", c★_mode)
 	println("\tCI width / posterior mode: ", (hi - lo) / c★_mode)
 	
 	hidexdecorations!(ax_t, grid=false)
-	axislegend(ax, ci_string, unique=true, titlefont=:regular)
+	axislegend(
+		ax, unique=true, titlefont=:regular, position=(0.9, 0.1), 
+		framevisible=true, bgcolor="white"
+	)
+	# Label(
+	# 	fig[1, 1], ci_string, tellwidth=false, tellheight=false,
+	# 	halign=0.9, valign=0.9, justification=:left,
+	# 	framevisible=true, bgcolor="white"
+	# )
+	textlabel!(
+	    ax, [4], [0.06], text=ci_string,
+	    text_align = (:left, :top)
+	)
 
 	if ! isnothing(acq_scores)
 		ax_b = Axis(
@@ -385,7 +424,7 @@ function viz(
 	end
 		
 	xlims!(-0.5, c_max + 0.5)
-	
+
 	savename = surfactant
 	if ! isnothing(acq_scores)
 		save(fig_savetag * "fit.pdf", fig)
@@ -790,7 +829,9 @@ end
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
 # ╠═1e324846-70da-494c-bb88-8668a0f0e526
 # ╠═0801bc21-de7c-4470-ae89-8725d90812e9
+# ╠═2806dc43-6fc4-49b8-b6d8-a0e2fd32d1f7
 # ╠═4cb87445-d372-4957-9cdb-4cd4bcc397de
+# ╠═cd6147e4-9785-4ee1-9454-2f4353dcca6c
 # ╟─5a1768a0-865a-46ba-b70f-0194664d9d21
 # ╠═fe1e0cc3-59ee-4887-8c90-af2d40b81892
 # ╠═49de609d-4cc3-46d6-9141-5de0395088fb
