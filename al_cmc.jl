@@ -61,8 +61,8 @@ md"# data
 "
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-surfactant = "Triton-X-100"
-# surfactant = "OTG"
+# surfactant = "Triton-X-100"
+surfactant = "OTG"
 
 # ╔═╡ 49de609d-4cc3-46d6-9141-5de0395088fb
 begin
@@ -312,6 +312,18 @@ end
 # ╔═╡ 5521e61b-7e34-4f72-882d-c7697463bef1
 posterior_c★_mode(posterior_samples)
 
+# ╔═╡ bb6f671c-b6d3-4abb-a71f-fcfc3d2a3cf5
+surfactant
+
+# ╔═╡ d39866ea-1b9c-4723-afe2-401872285f9e
+thing_to_color = Dict(
+	"data" => colors[6],
+	"model" => colors[5],
+	"distn" => colors[5],
+	"text" => colors[1],
+	"info gain" => colors[4]
+)
+
 # ╔═╡ 06cf608e-782e-4c67-acb2-3aead3642704
 function viz(
 	data::DataFrame, posterior_samples::DataFrame;
@@ -319,19 +331,25 @@ function viz(
 	x_pseudo_logscale::Bool=false
 )
 	cs = range(1e-6, c_max + 1.0, length=1000)
+
+	if surfactant == "OTG"
+		xticks = range(0.0, 30.0, length=11)
+	else
+		xticks = range(0.0, 10.0, length=11)
+	end
 	
 	fig = Figure(size=(600, 500))
 	ax = Axis(
 		fig[1, 1], 
 		xlabel="[surfactant] (mol/m³)", 
 		ylabel="surface tension (N/m)",
-		xticks=range(0.0, 10.0, length=11)
+		xticks=xticks
 	)
 	ax_t = Axis(
 		fig[0, 1], 
 		ylabel=rich("posterior\ndensity\nof c", superscript("★")), 
 		title=surfactant, 
-		xticks=range(0.0, 10.0, length=11),
+		xticks=xticks,
 		yticks=[0.0]
 	)
 
@@ -342,7 +360,11 @@ function viz(
 	rowsize!(fig.layout, 1, Relative(isnothing(acq_scores) ? 0.8 : 0.7))
 	
 	# posterior over c★
-	density!(ax_t, posterior_samples[:, "c★"], color=colors[3])
+	density!(
+		ax_t, posterior_samples[:, "c★"], 
+		color=(thing_to_color["distn"], 0.1), strokewidth=3, 
+		strokecolor=thing_to_color["distn"], boundary=(0.0, c_max + 0.5)
+	)
 
 	# posterior surface tension vs. surfactant conc. samples
 	for s = 1:n_samples_plot
@@ -351,29 +373,31 @@ function viz(
 				
 		lines!(
 			ax, cs, γ_model.(cs, γ₀, a, K, c★), 
-			color=(colors[2], 0.1), label="posterior sample"
+			color=(thing_to_color["model"], 0.1), label="posterior sample"
 		)
 	end
 	
 	# data
 	scatter!(
 		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], label="data",
-		color=colors[1]
+		color=thing_to_color["data"], markersize=16,
+		strokewidth=2, strokecolor="black"
 	)
-	errorbars!(
-		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], σ * ones(nrow(data)),
-		color=colors[1]
-	)
+	# errorbars!(
+	# 	ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], σ * ones(nrow(data)),
+	# 	color=thing_to_color["data"]
+	# )
 	annotation!(
 		ax, 
 		[(row["[S] (mol/m³)"], row["γ (N/m)"]) for row in eachrow(data)], 
-		text=vcat(["0", "0"], ["$i" for i = 1:(nrow(data)-2)]),
-		color=colors[6],
-		fontsize=12
+		text=vcat([" 0", " 0 "], [" $i" for i = 1:(nrow(data)-2)]),
+		color=thing_to_color["text"],
+		fontsize=14,
 	)
 
 	# credible interval and mode
 	lo, hi = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
+	lines!(ax_t, [lo, hi], [0, 0], color="gray")
 	c★_mode = posterior_c★_mode(posterior_samples)
 	
 	ci_string = rich(
@@ -397,7 +421,7 @@ function viz(
 	# 	framevisible=true, bgcolor="white"
 	# )
 	textlabel!(
-	    ax, [4], [0.06], text=ci_string,
+	    ax, [surfactant == "OTG" ? 12 : 4], [0.06], text=ci_string,
 	    text_align = (:left, :top)
 	)
 
@@ -433,6 +457,9 @@ function viz(
 	end
 	fig
 end
+
+# ╔═╡ 947e44ff-e2e0-495a-a7a6-7632d18733fb
+colors
 
 # ╔═╡ e6ea645f-282c-4598-8755-be568d7b3d2e
 viz(data, posterior_samples, n_samples_plot=25, x_pseudo_logscale=false)
@@ -869,7 +896,10 @@ end
 # ╟─c9f08ffb-b44f-4be3-881d-096020f17493
 # ╠═a738488f-b26d-4f9c-b6a6-f120becd28cf
 # ╠═5521e61b-7e34-4f72-882d-c7697463bef1
+# ╠═bb6f671c-b6d3-4abb-a71f-fcfc3d2a3cf5
 # ╠═06cf608e-782e-4c67-acb2-3aead3642704
+# ╠═d39866ea-1b9c-4723-afe2-401872285f9e
+# ╠═947e44ff-e2e0-495a-a7a6-7632d18733fb
 # ╠═e6ea645f-282c-4598-8755-be568d7b3d2e
 # ╟─49199459-f93c-4a23-8bed-1ea6b2fa2c94
 # ╠═f571f7f7-928a-4908-9a18-9cf90b3466d6
