@@ -882,15 +882,18 @@ function viz_ls_fit(data::DataFrame)
 	# fit model to data
 	γ₀, a, K, c★ = ls_fit(data)
 
-	fig = Figure(size=(450, 450))
+	fig = Figure(size=(550, 450))
 	ax = Axis(
 		fig[1, 1], 
 		xlabel="[surfactant] (mol/m³)", 
 		ylabel="surface tension (N/m)",
-		title="surfactant: $trad_surfactant"
+		# title="surfactant: $trad_surfactant",
+		xgridvisible=false,
+		ygridvisible=false
 	)
 
 	# model
+	draw_axes!(ax)
 	cs = range(0.0, 35.0, length=150)
 	lines!(
 		ax, cs, γ_model.(cs, γ₀, a, K, c★), 
@@ -911,17 +914,18 @@ function viz_ls_fit(data::DataFrame)
 	)
 
 	annotation!(
-		17.0, 0.0125, c★, 0.0,
+		5.0, 0.018, c★, 0.0,
 	    text = "critical\nmicelle\nconcentration",
 	    path = Ann.Paths.Arc(0.2),
 	    style = Ann.Styles.LineArrow(),
 		labelspace=:data,
-		fontsize=16
+		fontsize=16,
+		# justification=:left
 	)
 
 	xlims!(-1, 31)
-	axislegend()
-	draw_axes!(ax)
+	axislegend(framevisible=true, position=(0.9, 0.1))
+	
 	save("trad_approach_$(trad_surfactant).pdf", fig)
 	fig
 	# return γ_model.(cs, γ₀, a, K, c★)
