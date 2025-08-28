@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.11
+# v0.20.13
 
 using Markdown
 using InteractiveUtils
@@ -19,7 +19,7 @@ end
 # ╔═╡ cd47d8d0-5513-11f0-02cf-23409fc28fbf
 begin
 	import Pkg; Pkg.activate("cmc")
-	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase, KernelDensity, Cubature, Test, PlutoUI, Logging, ProgressLogging, Printf, Random
+	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase, KernelDensity, Cubature, Test, PlutoUI, Logging, ProgressLogging, Printf, Random, Optim
 end
 
 # ╔═╡ 1e324846-70da-494c-bb88-8668a0f0e526
@@ -42,9 +42,6 @@ begin
 	colors = parse.(Colorant, MakieThemes.GGThemr.ColorTheme[my_theme][:swatch])
 end
 
-# ╔═╡ 2806dc43-6fc4-49b8-b6d8-a0e2fd32d1f7
-Figure()
-
 # ╔═╡ 4cb87445-d372-4957-9cdb-4cd4bcc397de
 TableOfContents()
 
@@ -54,15 +51,18 @@ function draw_axes!(ax)
 	vlines!(ax, 0.0, color="black", linewidth=1)
 end
 
-# ╔═╡ 5a1768a0-865a-46ba-b70f-0194664d9d21
-md"# data
-
-## surfactant selector
-"
-
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-# surfactant = "Triton-X-100"
+#surfactant = "Triton-X-100"
 surfactant = "OTG"
+
+# ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
+md"figure saving convention"
+
+# ╔═╡ 5a1768a0-865a-46ba-b70f-0194664d9d21
+md"# 🏓 experimental data
+
+manually added to array in order of collection.
+"
 
 # ╔═╡ 49de609d-4cc3-46d6-9141-5de0395088fb
 begin
@@ -87,42 +87,25 @@ begin
 	end
 end
 
-# ╔═╡ 19a915ce-9fc8-4965-8151-80b097fc3cfb
-md"
-## iteration selector
-
-🛻 data subset selector
+# ╔═╡ 44dd2629-bcbe-4b5b-a8e0-0f7c4add3cd2
+md"# 🔘 select surfactant, iteration to view
 
 iters to include: $(@bind iteration PlutoUI.Select(0:nrow(_data)-2, default=nrow(_data)-2))
 "
+
+# ╔═╡ 42c551c8-372e-430b-a756-10260d88936c
+begin
+	figdir = "figs"
+	mkpath(figdir)
+
+	fig_savetag = joinpath(figdir, "$(surfactant)_iter_$(iteration)_")
+end
 
 # ╔═╡ c451c216-4f29-4cf5-b367-fd486e634506
 if iteration == 0
 	data = _data[1:2, :]
 else
 	data = _data[1:2+iteration, :]
-end
-
-# ╔═╡ 842d16b1-26e3-4cd2-81ac-83ed6cd3b6b3
-md"surface tension of pure solvent (water)."
-
-# ╔═╡ 533a51d0-3b42-42e0-b8db-1ab7c672f3df
-γ₀ = data[1, "γ (N/m)"]
-
-# ╔═╡ 8545bcda-beb7-48b7-80ee-157b8c64f6c2
-md"
-## fig saving convention
-
-save tag for all figures"
-
-# ╔═╡ 42c551c8-372e-430b-a756-10260d88936c
-begin
-	figdir = "figs"
-	if ! isdir(figdir)
-		mkdir(figdir)
-	end
-
-	fig_savetag = joinpath(figdir, "$(surfactant)_iter_$(iteration)_")
 end
 
 # ╔═╡ 874cc30e-0d7d-4a82-a523-c0caa9da4a59
@@ -167,20 +150,20 @@ md"📏 measurement error"
 
 # ╔═╡ bcd013f5-3211-4ca4-ac1d-fae758199e75
 @model function cmc_model(data::DataFrame)
-	# begin with pure solvent so γ₀ doesn't need inferred
+	# surface tension of pure water
 	@assert data[1, "[S] (mol/m³)"] == 0.0
+	γ₀_obs = data[1, "γ (N/m)"]
 		
 	#=
 	prior distributions
 	=#
-	γ₀ ~ Normal(data[1, "γ (N/m)"], σ)
-	# σ ~ Uniform(0.0, 0.002) # if we wanted to infer measurement noise level
+	γ₀ ~ Normal(γ₀_obs, σ)    # N/m
 	a ~ Uniform(0.001, 0.1)   # N/m
-	K ~ Uniform(0.0, 10000.0) # 1 / (mol / m³)
+	K ~ Uniform(0.0, 10000.0) # (mol/m³)⁻¹
 	if surfactant == "OTG"
 		c★ ~ Uniform(0.0, 30.0)  # mol / m³
 	elseif surfactant == "Triton-X-100"
-		c★ ~ LogUniform(0.001, 10)  # mol / m³
+		c★ ~ LogUniform(0.001, 10.0)  # mol / m³
 	end
 	
 	#=
@@ -218,6 +201,14 @@ end
 # ╔═╡ a4f779ba-9410-4e67-840f-7114561f23b4
 params = chain.name_map.parameters
 
+# ╔═╡ 0556cc9b-a511-45aa-b7c9-9e86bd8a610d
+param_to_unit = Dict(
+	"γ₀" => "N/m",
+	"a" => "N/m",
+	"K" => "(mol/m³)⁻¹",
+	"c★" => "mol/m³"
+)
+
 # ╔═╡ 37dc8c68-2270-4226-b209-f3fab65b3b13
 md"converge diagnostics"
 
@@ -251,7 +242,11 @@ function draw_convergence_diagnostics(
 	fig = Figure()
 	
 	# axes
-	ax = Axis(fig[1, 1], xlabel="iteration", ylabel=param)
+	ax = Axis(
+		fig[1, 1],
+		xlabel="iteration",
+		ylabel=param * " [" * param_to_unit[param] * "]"
+	)
 	ax_d = Axis(fig[1, 2], xlabel="density", xticks=[0.0])
 
 	# axes stuff
@@ -264,7 +259,10 @@ function draw_convergence_diagnostics(
 		c = data[1, :chain]
 		
 		# caterpillar
-		lines!(ax, data[:, param], linewidth=1, label="chain $c", color=colors[c])
+		lines!(
+			ax, data[:, param], linewidth=1, label="chain $c", 
+			color=colors[c]
+		)
 
 		# histogram
 		density!(
@@ -272,7 +270,7 @@ function draw_convergence_diagnostics(
 			strokecolor=colors[c], strokewidth=1
 		)
 	end
-	axislegend(ax)
+	axislegend(ax, orientation=:horizontal, labelsize=14)
 	if save_the_fig 
 		save(fig_savetag * "$(param)_convergence.pdf", fig)
 	end
@@ -369,7 +367,7 @@ function viz(
 	# posterior surface tension vs. surfactant conc. samples
 	for s = 1:n_samples_plot
 		i = sample(1:nrow(posterior_samples))
-		a, K, c★ = posterior_samples[i, ["a", "K", "c★"]]
+		γ₀, a, K, c★ = posterior_samples[i, ["γ₀", "a", "K", "c★"]]
 				
 		lines!(
 			ax, cs, γ_model.(cs, γ₀, a, K, c★), 
@@ -521,22 +519,15 @@ end
 # ╔═╡ aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
 md"entropy of c★ over the multiple chains"
 
-# ╔═╡ 47ab5a7c-62da-4829-b658-214e843fc30b
-hist(
-	log10.([rand(LogUniform(0.001, 10.0)) for i = 1:1000]),
-	axis=(; title="initial prior c★", xlabel=entropy_of_log10 ? "log₁₀(c★) [mol/m³]" : "c★ [mol/m³]", ylabel="density")
-)
-
 # ╔═╡ 64b3b08d-733d-4cbb-b488-7a54778a4980
 hist(
-	entropy_of_log10 ? log10.(posterior_samples[:, "c★"]) : posterior_samples[:, "c★"],
-	axis=(; title="posterior c★", xlabel=entropy_of_log10 ? "log₁₀(c★) [mol/m³]" : "c★ [mol/m³]", ylabel="density")
-)
-
-# ╔═╡ 6a242467-de3c-45c7-b220-f5bd8a59679c
-hist(
 	posterior_samples[:, "c★"],
-	axis=(; title="posterior c★", xlabel="c★ [mol/m³]", ylabel="density")
+	axis=(; 
+		  title="posterior c★", 
+		  xlabel="c★ [mol/m³]",   
+		  ylabel="density",
+		  xscale=entropy_of_log10 ? log10 : identity
+	)
 )
 
 # ╔═╡ fa9012a4-24f4-4358-92b3-74cb37270d31
@@ -547,6 +538,9 @@ md"# acquisition: information gain
 
 calculate information gain about the CMC
 "
+
+# ╔═╡ 97e4a572-0bfe-4b0c-b3a6-36201ae36701
+params
 
 # ╔═╡ f1ec7091-d47e-475d-885a-fcc96ceab663
 function α_ig(
@@ -561,7 +555,7 @@ function α_ig(
 		sample from posterior
 		=#
 		i = sample(1:nrow(posterior_samples))
-		a, K, c★, γ₀ = posterior_samples[i, ["a", "K", "c★", "γ₀"]]
+		γ₀, a, K, c★ = posterior_samples[i, ["γ₀", "a", "K", "c★"]]
 	
 		#=
 		fantasize a measurement at this c
@@ -629,12 +623,6 @@ md"
 
 $(@bind compute_α CheckBox(default=false))"
 
-# ╔═╡ fba7cd96-cf24-4df6-9673-1c05ed9fa67a
-surfactant
-
-# ╔═╡ e9f5ecbb-b7c9-46f7-bc5a-dc5b468a742a
-data
-
 # ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
 begin
 	#=
@@ -679,17 +667,6 @@ begin
 			)
 		end
 	end
-end
-
-# ╔═╡ 7d58661e-c6fe-420b-ba2f-3c9afb588ef0
-begin
-	local fig = Figure()
-	local ax = Axis(
-		fig[1, 1], title="posterior c★", xlabel="c★ [mol/m³]", ylabel="density"
-	)
-	hist!(posterior_samples[:, "c★"])
-	vlines!(cs[1:end-5], color="black")
-	fig
 end
 
 # ╔═╡ a17064d4-38ce-49b6-a34a-1f1de50f63b6
@@ -751,19 +728,24 @@ md"# post-AL analysis: info dynamics
 md"$(@bind run_info_dynamics PlutoUI.CheckBox(default=false))"
 
 # ╔═╡ e0d9f20d-7d0a-48c2-b10c-f0c251280a66
-function entropy_dynamics(data)
+function entropy_dynamics(data::DataFrame)
 	nb_iters = nrow(data) - 2
 
 	S = zeros(nb_iters+1)
 	lo = zeros(nb_iters+1)
 	hi = zeros(nb_iters+1)
+	
 	c★_posterior_samples = DataFrame(
 		"iteration" => Int[],
 		"c★" => Float64[]
 	)
+	
 	for i = 0:nb_iters
+		#=
+		Bayesian inference with only this data
+		=#
 		model = cmc_model(data[1:(2+i), :])
-		
+
 		chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
 		
 		if ! all(gelmandiag(chain)[:, :psrfci] .< 1.1)
@@ -772,6 +754,7 @@ function entropy_dynamics(data)
 		
 		posterior_samples = DataFrame(chain)
 
+		# store
 		c★_posterior_samples = vcat(
 			c★_posterior_samples,
 			DataFrame(
@@ -780,6 +763,7 @@ function entropy_dynamics(data)
 			)
 		)
 
+		# compute entry and quantile of posterior of CMC
 		S[i+1] = entropy(posterior_samples[:, "c★"])
 
 		lo[i+1], hi[i+1] = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
@@ -852,22 +836,113 @@ if run_info_dynamics
 	viz_posterior_cmc_over_iters(c★_posterior_samples)
 end
 
+# ╔═╡ f2f70823-5990-43a2-a31e-60de32cee6d3
+md"# into figure (traditional fitting routine with tons of data)"
+
+# ╔═╡ 6639dcc9-8e98-4746-b4be-93f1f4704859
+trad_surfactant = "OTG"
+
+# ╔═╡ 12e7cf6b-3685-4bb2-814c-ace95fcb5142
+trad_data = CSV.read("data/$(trad_surfactant)_trad.csv", DataFrame)
+
+# ╔═╡ e117d5b7-331c-4c36-8a3c-eb37f9dfc799
+posterior_samples[:, "a"]
+
+# ╔═╡ 1b8c75e8-d814-4674-a957-6507ededeea2
+function ls_fit(
+	data::DataFrame, 
+	θ₀::Vector{Float64}=[
+		mean(posterior_samples[:, "γ₀"]),
+		mean(posterior_samples[:, "a"]),
+		mean(posterior_samples[:, "K"]),
+		mean(posterior_samples[:, "c★"]),
+	]
+)
+	function loss(θ)
+		γ₀, a, K, c★ = θ
+
+		ℓ = 0.0
+		for i = 1:nrow(data)
+			cᵢ = data[i, "[S] (mol/m³)"]
+			γᵢ = data[i, "γ (N/m)"]
+
+			γ̂ᵢ = γ_model(cᵢ, γ₀, a, K, c★)
+
+			ℓ += (γᵢ - γ̂ᵢ) ^ 2
+		end
+		return ℓ
+	end
+
+	θ = res = optimize(loss, θ₀).minimizer
+	return θ
+end
+
+# ╔═╡ 1953f157-ae09-47a7-854c-2352f8b5f131
+function viz_ls_fit(data::DataFrame)
+	# fit model to data
+	γ₀, a, K, c★ = ls_fit(data)
+
+	fig = Figure(size=(450, 450))
+	ax = Axis(
+		fig[1, 1], 
+		xlabel="[surfactant] (mol/m³)", 
+		ylabel="surface tension (N/m)",
+		title="surfactant: $trad_surfactant"
+	)
+
+	# model
+	cs = range(0.0, 35.0, length=150)
+	lines!(
+		ax, cs, γ_model.(cs, γ₀, a, K, c★), 
+		color=thing_to_color["model"], label="fitted model"
+	)
+
+	# data
+	scatter!(
+		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], label="data",
+		color=thing_to_color["data"], markersize=16,
+		strokewidth=2, strokecolor="black"
+	)
+
+	# CMC
+	lines!(
+		[c★, c★], [0.0, γ_model.(30.0, γ₀, a, K, c★)],
+		color="gray", linewidth=1
+	)
+
+	annotation!(
+		17.0, 0.0125, c★, 0.0,
+	    text = "critical\nmicelle\nconcentration",
+	    path = Ann.Paths.Arc(0.2),
+	    style = Ann.Styles.LineArrow(),
+		labelspace=:data,
+		fontsize=16
+	)
+
+	xlims!(-1, 31)
+	axislegend()
+	draw_axes!(ax)
+	save("trad_approach_$(trad_surfactant).pdf", fig)
+	fig
+	# return γ_model.(cs, γ₀, a, K, c★)
+end
+
+# ╔═╡ a77f2620-c2fe-4d5d-a42c-6154e92195ea
+viz_ls_fit(trad_data)
+
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
 # ╠═1e324846-70da-494c-bb88-8668a0f0e526
 # ╠═0801bc21-de7c-4470-ae89-8725d90812e9
-# ╠═2806dc43-6fc4-49b8-b6d8-a0e2fd32d1f7
 # ╠═4cb87445-d372-4957-9cdb-4cd4bcc397de
 # ╠═cd6147e4-9785-4ee1-9454-2f4353dcca6c
-# ╟─5a1768a0-865a-46ba-b70f-0194664d9d21
+# ╟─44dd2629-bcbe-4b5b-a8e0-0f7c4add3cd2
 # ╠═fe1e0cc3-59ee-4887-8c90-af2d40b81892
-# ╠═49de609d-4cc3-46d6-9141-5de0395088fb
-# ╟─19a915ce-9fc8-4965-8151-80b097fc3cfb
-# ╠═c451c216-4f29-4cf5-b367-fd486e634506
-# ╟─842d16b1-26e3-4cd2-81ac-83ed6cd3b6b3
-# ╠═533a51d0-3b42-42e0-b8db-1ab7c672f3df
-# ╟─8545bcda-beb7-48b7-80ee-157b8c64f6c2
+# ╟─ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 # ╠═42c551c8-372e-430b-a756-10260d88936c
+# ╟─5a1768a0-865a-46ba-b70f-0194664d9d21
+# ╠═49de609d-4cc3-46d6-9141-5de0395088fb
+# ╠═c451c216-4f29-4cf5-b367-fd486e634506
 # ╟─874cc30e-0d7d-4a82-a523-c0caa9da4a59
 # ╠═b686a78a-fba7-41f5-b30f-621e3416ae96
 # ╟─ca288f74-bc34-457f-8caa-ab1627f5c46f
@@ -881,6 +956,7 @@ end
 # ╠═ea27c7f7-0073-4d0b-a171-7b404af1d0d6
 # ╠═948a0fe4-e8ec-47e5-92a7-a66be020f0df
 # ╠═a4f779ba-9410-4e67-840f-7114561f23b4
+# ╠═0556cc9b-a511-45aa-b7c9-9e86bd8a610d
 # ╟─37dc8c68-2270-4226-b209-f3fab65b3b13
 # ╠═52080b61-1e8d-4343-b79c-b3b39861e2c8
 # ╟─fbe04777-fe1c-4f75-8059-80abd2da17da
@@ -906,20 +982,16 @@ end
 # ╠═192b5353-c0d5-457a-bf59-579709d8f2ec
 # ╠═085d09d1-375f-4d97-92c1-73161383c0cf
 # ╟─aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
-# ╠═47ab5a7c-62da-4829-b658-214e843fc30b
 # ╠═64b3b08d-733d-4cbb-b488-7a54778a4980
-# ╠═6a242467-de3c-45c7-b220-f5bd8a59679c
 # ╠═fa9012a4-24f4-4358-92b3-74cb37270d31
 # ╟─64ebafed-7692-4fa1-bbed-fc2cde90af6b
+# ╠═97e4a572-0bfe-4b0c-b3a6-36201ae36701
 # ╠═f1ec7091-d47e-475d-885a-fcc96ceab663
 # ╟─e759e6f4-3366-4d94-93fc-1f6f5cb59e2b
 # ╠═fc333a63-86f1-43d6-9f7e-1f43bd926caf
 # ╟─1b92732c-e918-41d1-b422-822794f850e5
 # ╠═48e51f57-3d7e-4096-b5c2-67a2244ba2e9
 # ╟─3dd13aca-090d-4ba4-8086-85c56f7d0065
-# ╠═fba7cd96-cf24-4df6-9673-1c05ed9fa67a
-# ╠═e9f5ecbb-b7c9-46f7-bc5a-dc5b468a742a
-# ╠═7d58661e-c6fe-420b-ba2f-3c9afb588ef0
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
 # ╠═a17064d4-38ce-49b6-a34a-1f1de50f63b6
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
@@ -937,3 +1009,10 @@ end
 # ╠═5e9b76da-4f51-420c-badf-8b29c33e5a58
 # ╠═8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
 # ╠═cf20b7c9-85bc-4f57-a74e-edcf77e3033d
+# ╟─f2f70823-5990-43a2-a31e-60de32cee6d3
+# ╠═6639dcc9-8e98-4746-b4be-93f1f4704859
+# ╠═12e7cf6b-3685-4bb2-814c-ace95fcb5142
+# ╠═e117d5b7-331c-4c36-8a3c-eb37f9dfc799
+# ╠═1b8c75e8-d814-4674-a957-6507ededeea2
+# ╠═1953f157-ae09-47a7-854c-2352f8b5f131
+# ╠═a77f2620-c2fe-4d5d-a42c-6154e92195ea
