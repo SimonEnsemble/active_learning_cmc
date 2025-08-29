@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.5
 
 using Markdown
 using InteractiveUtils
@@ -877,12 +877,18 @@ function ls_fit(
 	return θ
 end
 
+# ╔═╡ 5ca1a52b-12cd-4782-a486-50e6d193a13a
+thing_to_color
+
+# ╔═╡ 3fc7cbe3-06a5-49da-8f61-38ccadaea5bb
+colors
+
 # ╔═╡ 1953f157-ae09-47a7-854c-2352f8b5f131
 function viz_ls_fit(data::DataFrame)
 	# fit model to data
 	γ₀, a, K, c★ = ls_fit(data)
 
-	fig = Figure(size=(550, 450))
+	fig = Figure(size=(550, 450), backgroundcolor=:transparent)
 	ax = Axis(
 		fig[1, 1], 
 		xlabel="[surfactant] (mol/m³)", 
@@ -892,12 +898,19 @@ function viz_ls_fit(data::DataFrame)
 		ygridvisible=false
 	)
 
-	# model
+	
 	draw_axes!(ax)
-	cs = range(0.0, 35.0, length=150)
+
+	# model (break into model and plateu)
+	cs = range(0.0, c★, length=150)
 	lines!(
 		ax, cs, γ_model.(cs, γ₀, a, K, c★), 
-		color=thing_to_color["model"], label="fitted model"
+		color=thing_to_color["model"], label="adsorption model"
+	)
+	c∞ = γ_model.(c★, γ₀, a, K, c★)
+	lines!(
+		ax, [c★, 30.0], [c∞, c∞], 
+		color=colors[1], label="flat region"
 	)
 
 	# data
@@ -913,15 +926,15 @@ function viz_ls_fit(data::DataFrame)
 		color="gray", linewidth=1
 	)
 
-	annotation!(
-		5.0, 0.018, c★, 0.0,
-	    text = "critical\nmicelle\nconcentration",
-	    path = Ann.Paths.Arc(0.2),
-	    style = Ann.Styles.LineArrow(),
-		labelspace=:data,
-		fontsize=16,
-		# justification=:left
-	)
+	# annotation!(
+	# 	5.0, 0.018, c★, 0.0,
+	#     text = "critical\nmicelle\nconcentration",
+	#     path = Ann.Paths.Arc(0.2),
+	#     style = Ann.Styles.LineArrow(),
+	# 	labelspace=:data,
+	# 	fontsize=16,
+	# 	# justification=:left
+	# )
 
 	xlims!(-1, 31)
 	axislegend(framevisible=true, position=(0.9, 0.1))
@@ -930,6 +943,9 @@ function viz_ls_fit(data::DataFrame)
 	fig
 	# return γ_model.(cs, γ₀, a, K, c★)
 end
+
+# ╔═╡ ab9f84b7-99e6-4689-954e-e44b7817f679
+colors
 
 # ╔═╡ a77f2620-c2fe-4d5d-a42c-6154e92195ea
 viz_ls_fit(trad_data)
@@ -1018,5 +1034,8 @@ viz_ls_fit(trad_data)
 # ╠═12e7cf6b-3685-4bb2-814c-ace95fcb5142
 # ╠═e117d5b7-331c-4c36-8a3c-eb37f9dfc799
 # ╠═1b8c75e8-d814-4674-a957-6507ededeea2
+# ╠═5ca1a52b-12cd-4782-a486-50e6d193a13a
+# ╠═3fc7cbe3-06a5-49da-8f61-38ccadaea5bb
 # ╠═1953f157-ae09-47a7-854c-2352f8b5f131
+# ╠═ab9f84b7-99e6-4689-954e-e44b7817f679
 # ╠═a77f2620-c2fe-4d5d-a42c-6154e92195ea
