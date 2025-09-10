@@ -19,7 +19,7 @@ end
 # ╔═╡ cd47d8d0-5513-11f0-02cf-23409fc28fbf
 begin
 	import Pkg; Pkg.activate("cmc")
-	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase, KernelDensity, Cubature, Test, PlutoUI, Logging, ProgressLogging, Printf, Random, Optim
+	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase, KernelDensity, Cubature, Test, PlutoUI, Logging, ProgressLogging, Printf, Random, Optim, JLD2
 end
 
 # ╔═╡ 1e324846-70da-494c-bb88-8668a0f0e526
@@ -623,6 +623,12 @@ md"
 
 $(@bind compute_α CheckBox(default=false))"
 
+# ╔═╡ 2d2ca430-4c4a-4d7d-97b8-30a0c8aa5a97
+info_gain_filename = joinpath(
+	"data",
+	"info_gain" * surfactant * "_$(iteration)" * ".jld2"
+)
+
 # ╔═╡ ed12167e-0ee3-472c-93d5-3424453019c4
 begin
 	#=
@@ -657,14 +663,17 @@ begin
 	=#
 	αs = zeros(length(cs))
 	if compute_α
-		@progress for i = 1:length(cs)
-			αs[i] = α_ig(
-				cs[i], data, posterior_samples, 
-				n_samples=250, n_MC_samples=100
-				# n_samples=300, n_MC_samples=150,
-				# n_samples=300, n_MC_samples=200,
-				#n_samples=300, n_MC_samples=200
-			)
+		if ! isfile(info_gain_filename)
+			@progress for i = 1:length(cs)
+				αs[i] = α_ig(
+					cs[i], data, posterior_samples, 
+					n_samples=300, n_MC_samples=200
+				)
+			end
+			jldsave(info_gain_filename; αs)
+		else
+			println("loading pre-computed info gains from $info_gain_filename")
+			αs = load(info_gain_filename, "αs")
 		end
 	end
 end
@@ -678,7 +687,7 @@ end
 
 # ╔═╡ e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
 if compute_α
-	viz(data, posterior_samples, acq_scores=acq_scores, x_pseudo_logscale=true)
+	viz(data, posterior_samples, acq_scores=acq_scores, x_pseudo_logscale=false)
 end
 
 # ╔═╡ 78f08666-d2a3-4bd0-9c92-ecb383eebb07
@@ -1012,6 +1021,7 @@ viz_ls_fit(trad_data)
 # ╟─1b92732c-e918-41d1-b422-822794f850e5
 # ╠═48e51f57-3d7e-4096-b5c2-67a2244ba2e9
 # ╟─3dd13aca-090d-4ba4-8086-85c56f7d0065
+# ╠═2d2ca430-4c4a-4d7d-97b8-30a0c8aa5a97
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
 # ╠═a17064d4-38ce-49b6-a34a-1f1de50f63b6
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
