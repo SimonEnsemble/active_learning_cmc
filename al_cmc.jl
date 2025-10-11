@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.5
+# v0.20.17
 
 using Markdown
 using InteractiveUtils
@@ -313,6 +313,9 @@ posterior_c★_mode(posterior_samples)
 # ╔═╡ bb6f671c-b6d3-4abb-a71f-fcfc3d2a3cf5
 surfactant
 
+# ╔═╡ 469ebccb-2279-4ebb-b937-6df47fa416c7
+data
+
 # ╔═╡ d39866ea-1b9c-4723-afe2-401872285f9e
 thing_to_color = Dict(
 	"data" => colors[6],
@@ -326,29 +329,44 @@ thing_to_color = Dict(
 function viz(
 	data::DataFrame, posterior_samples::DataFrame;
 	acq_scores::Union{DataFrame, Nothing}=nothing, n_samples_plot::Int=50,
-	x_pseudo_logscale::Bool=false
+	x_logscale::Bool=false
 )
-	cs = range(1e-6, c_max + 1.0, length=1000)
-
+	if x_logscale
+		cs = 10.0 .^ range(-4, 1.75, length=100)
+	else
+		cs = range(1e-6, c_max + 1.0, length=1000)
+	end
+	
 	if surfactant == "OTG"
 		xticks = range(0.0, 30.0, length=11)
 	else
-		xticks = range(0.0, 10.0, length=11)
+		if x_logscale
+			xticks = (
+				[0.0001, 0.001, 0.01, 0.1, 1, 10],
+				["0.0001", "0.001", "0.01", "0.1", "1", "10"],
+			)
+		else
+			xticks = range(0.0, 10.0, length=11)
+		end
 	end
+
+	id_start = x_logscale ? 2 : 1
 	
-	fig = Figure(size=(600, 500))
+	fig = Figure(size=(500, 500))
 	ax = Axis(
 		fig[1, 1], 
 		xlabel="[surfactant] (mol/m³)", 
 		ylabel="surface tension (N/m)",
-		xticks=xticks
+		xticks=xticks,
+		xscale=x_logscale ? log10 : identity
 	)
 	ax_t = Axis(
 		fig[0, 1], 
 		ylabel=rich("posterior\ndensity\nof c", superscript("★")), 
-		title=surfactant, 
+		title="surfactant: " * surfactant, 
 		xticks=xticks,
-		yticks=[0.0]
+		yticks=[0.0],
+		xscale=x_logscale ? log10 : identity
 	)
 
 	draw_axes!(ax)
@@ -361,7 +379,9 @@ function viz(
 	density!(
 		ax_t, posterior_samples[:, "c★"], 
 		color=(thing_to_color["distn"], 0.1), strokewidth=3, 
-		strokecolor=thing_to_color["distn"], boundary=(0.0, c_max + 0.5)
+		strokecolor=thing_to_color["distn"], 
+		boundary=x_logscale ? (10^(-4), 12) : (0.0, c_max + 0.5),
+		npoints=500
 	)
 
 	# posterior surface tension vs. surfactant conc. samples
@@ -377,7 +397,9 @@ function viz(
 	
 	# data
 	scatter!(
-		ax, data[:, "[S] (mol/m³)"], data[:, "γ (N/m)"], label="data",
+		ax, 
+		data[id_start:end, "[S] (mol/m³)"], data[id_start:end, "γ (N/m)"], 
+		label="data",
 		color=thing_to_color["data"], markersize=16,
 		strokewidth=2, strokecolor="black"
 	)
@@ -387,8 +409,15 @@ function viz(
 	# )
 	annotation!(
 		ax, 
-		[(row["[S] (mol/m³)"], row["γ (N/m)"]) for row in eachrow(data)], 
-		text=vcat([" 0", " 0 "], [" $i" for i = 1:(nrow(data)-2)]),
+		[
+			(row["[S] (mol/m³)"], row["γ (N/m)"]) 
+		 	for row in eachrow(data[id_start:end, :])
+		], 
+		text=x_logscale ? 
+			vcat([" 0 "], [" $i" for i = 1:(nrow(data)-2)]) # delete first zero
+			:
+			vcat([" 0", " 0 "], [" $i" for i = 1:(nrow(data)-2)])
+			,
 		color=thing_to_color["text"],
 		fontsize=14,
 	)
@@ -399,28 +428,23 @@ function viz(
 	c★_mode = posterior_c★_mode(posterior_samples)
 	
 	ci_string = rich(
-		rich("posterior of c", font=:bold), 
-		superscript("★"), 
-		":\n",
-		"\t 90% " * @sprintf("CI: [%.2f, %.2f] mol/m³", lo, hi) * "\n" * @sprintf("\t mode: %.2f mol/m³", c★_mode)
+		"90% " * @sprintf("CI: [%.2f, %.2f] mol/m³", lo, hi) * "\n" * @sprintf(" mode: %.2f mol/m³", c★_mode)
 	)
 	
 	println("\tposterior mode: ", c★_mode)
 	println("\tCI width / posterior mode: ", (hi - lo) / c★_mode)
 	
-	hidexdecorations!(ax_t, grid=false)
+	# hidexdecorations!(ax_t, grid=false)
 	axislegend(
-		ax, unique=true, titlefont=:regular, position=(0.9, 0.1), 
+		ax, unique=true, titlefont=:regular, 
+		position=surfactant == "OTG" ? (0.9, 0.9) : (0.9, 0.1), 
 		framevisible=true, bgcolor="white"
 	)
-	# Label(
-	# 	fig[1, 1], ci_string, tellwidth=false, tellheight=false,
-	# 	halign=0.9, valign=0.9, justification=:left,
-	# 	framevisible=true, bgcolor="white"
-	# )
-	textlabel!(
-	    ax, [surfactant == "OTG" ? 12 : 4], [0.06], text=ci_string,
-	    text_align = (:left, :top)
+	Label(
+		fig[0, 1], ci_string, tellwidth=false, tellheight=false,
+		halign=surfactant == "OTG" ? 0.95 : 0.05, valign=0.9, justification=:left,
+		fontsize=12
+		# framevisible=true, bgcolor="white"
 	)
 
 	if ! isnothing(acq_scores)
@@ -433,22 +457,14 @@ function viz(
 			acq_scores[:, "c [mol/m³]"], acq_scores[:, "info gain"], color=colors[4]
 		)
 	end
-	
-	if x_pseudo_logscale
-		xlims!(ax, 0.001, 10.0)
-		ax.xscale = Makie.pseudolog10
-		ax.xticks = [0, 0.001, 0.01, 0.1, 1, 10]
-		ax_t.xscale = Makie.pseudolog10
-		if ! isnothing(acq_scores)
-			ax_b.xscale = Makie.pseudolog10
-			ax_b.xticks = [0, 0.001, 0.01, 0.1, 1, 10]
-		end
+	if x_logscale
+		xlims!(10^(-4), 12)
+	else
+		xlims!(-0.5, c_max + 0.5)
 	end
-		
-	xlims!(-0.5, c_max + 0.5)
 
 	savename = surfactant
-	if ! isnothing(acq_scores)
+	if isnothing(acq_scores)
 		save(fig_savetag * "fit.pdf", fig)
 	else
 		save(fig_savetag * "fit_w_info_gain.pdf", fig)
@@ -460,7 +476,10 @@ end
 colors
 
 # ╔═╡ e6ea645f-282c-4598-8755-be568d7b3d2e
-viz(data, posterior_samples, n_samples_plot=25, x_pseudo_logscale=false)
+viz(
+	data, posterior_samples, n_samples_plot=25, 
+	x_logscale=surfactant=="Triton-X-100"
+)
 
 # ╔═╡ 49199459-f93c-4a23-8bed-1ea6b2fa2c94
 md"# entropy calculations
@@ -1003,6 +1022,7 @@ viz_ls_fit(trad_data)
 # ╠═5521e61b-7e34-4f72-882d-c7697463bef1
 # ╠═bb6f671c-b6d3-4abb-a71f-fcfc3d2a3cf5
 # ╠═06cf608e-782e-4c67-acb2-3aead3642704
+# ╠═469ebccb-2279-4ebb-b937-6df47fa416c7
 # ╠═d39866ea-1b9c-4723-afe2-401872285f9e
 # ╠═947e44ff-e2e0-495a-a7a6-7632d18733fb
 # ╠═e6ea645f-282c-4598-8755-be568d7b3d2e
