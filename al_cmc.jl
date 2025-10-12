@@ -189,14 +189,30 @@ model = cmc_model(data)
 md"## sample chain"
 
 # ╔═╡ ea27c7f7-0073-4d0b-a171-7b404af1d0d6
-n_MC_samples = 25000
+n_MC_samples = 35000
+
+# ╔═╡ dbd0322a-def5-47ab-90b6-d6e070a5b438
+mcmc_filename = joinpath(
+	"data",
+	"mcmc" * surfactant * "_$(iteration)_iters_$(n_MC_samples)_samples" * ".jld2"
+)
 
 # ╔═╡ 948a0fe4-e8ec-47e5-92a7-a66be020f0df
 begin
-	Random.seed!(45345635 + 1 + 1) # for reproducibility
-	@time chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
-	posterior_samples = DataFrame(chain)
+	Random.seed!(45345635) # for reproducibility
+	if ! isfile(mcmc_filename)
+		@time chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
+		posterior_samples = DataFrame(chain)
+		jldsave(mcmc_filename; posterior_samples, chain)
+	else
+		println("loading pre-computed MCMC $mcmc_filename")
+		chain = load(mcmc_filename, "chain")
+		posterior_samples = load(mcmc_filename, "posterior_samples")
+	end
 end
+
+# ╔═╡ 23b78862-7b21-46c9-bff8-92575531ef73
+load(mcmc_filename, "posterior_samples")
 
 # ╔═╡ a4f779ba-9410-4e67-840f-7114561f23b4
 params = chain.name_map.parameters
@@ -655,7 +671,9 @@ begin
 	i.e. surfactant concentrations [mol/m³]
 	=#
 	if surfactant == "OTG"
-		if iteration in [0, 1]
+		if iteration == 0
+			cs = collect(range(0.0, c_max, length=11))
+		elseif iteration == 1
 			cs = 0:1.0:c_max
 		elseif iteration == [2, 3]
 			cs = 0:0.5:c_max
@@ -686,7 +704,7 @@ begin
 			@progress for i = 1:length(cs)
 				αs[i] = α_ig(
 					cs[i], data, posterior_samples, 
-					n_samples=300, n_MC_samples=200
+					n_samples=200, n_MC_samples=100
 				)
 			end
 			jldsave(info_gain_filename; αs)
@@ -706,7 +724,10 @@ end
 
 # ╔═╡ e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
 if compute_α
-	viz(data, posterior_samples, acq_scores=acq_scores, x_pseudo_logscale=false)
+	viz(
+		data, posterior_samples, acq_scores=acq_scores, 
+		x_logscale=surfactant=="Triton-X-100"
+	)
 end
 
 # ╔═╡ 78f08666-d2a3-4bd0-9c92-ecb383eebb07
@@ -1002,7 +1023,9 @@ viz_ls_fit(trad_data)
 # ╠═9d2f66ee-03aa-42d9-ae9d-6ee14f1f1f63
 # ╟─f0b122c9-4d43-405b-a28e-ead0c79772cb
 # ╠═ea27c7f7-0073-4d0b-a171-7b404af1d0d6
+# ╠═dbd0322a-def5-47ab-90b6-d6e070a5b438
 # ╠═948a0fe4-e8ec-47e5-92a7-a66be020f0df
+# ╠═23b78862-7b21-46c9-bff8-92575531ef73
 # ╠═a4f779ba-9410-4e67-840f-7114561f23b4
 # ╠═0556cc9b-a511-45aa-b7c9-9e86bd8a610d
 # ╟─37dc8c68-2270-4226-b209-f3fab65b3b13
