@@ -368,7 +368,7 @@ function viz(
 
 	id_start = x_logscale ? 2 : 1
 	
-	fig = Figure(size=(500, 500))
+	fig = Figure(size=isnothing(acq_scores) ? (500, 500) : (500, 550))
 	ax = Axis(
 		fig[1, 1], 
 		xlabel="[surfactant] (mol/m³)", 
@@ -389,7 +389,7 @@ function viz(
 	draw_axes!(ax_t)
 	
 	linkxaxes!(ax, ax_t)
-	rowsize!(fig.layout, 1, Relative(isnothing(acq_scores) ? 0.8 : 0.7))
+	rowsize!(fig.layout, 1, Relative(isnothing(acq_scores) ? 0.75 : 0.65))
 	
 	# posterior over c★
 	density!(
@@ -407,7 +407,7 @@ function viz(
 				
 		lines!(
 			ax, cs, γ_model.(cs, γ₀, a, K, c★), 
-			color=(thing_to_color["model"], 0.1), label="posterior sample"
+			color=(thing_to_color["model"], 0.1), label="model (sample)"
 		)
 	end
 	
@@ -456,23 +456,48 @@ function viz(
 		position=surfactant == "OTG" ? (0.9, 0.9) : (0.9, 0.1), 
 		framevisible=true, bgcolor="white"
 	)
+	if surfactant == "OTG" && iteration == 0
+		halign = 0.95
+	else
+		halign = 0.05
+	end
 	Label(
 		fig[0, 1], ci_string, tellwidth=false, tellheight=false,
-		halign=surfactant == "OTG" ? 0.95 : 0.05, valign=0.9, justification=:left,
+		halign=halign, valign=0.9, justification=:left,
 		fontsize=12
 		# framevisible=true, bgcolor="white"
 	)
 
 	if ! isnothing(acq_scores)
 		ax_b = Axis(
-			fig[2, 1], ylabel="information\ngain", xlabel="[surfactant] (mol/m³)"
+			fig[2, 1],
+			xlabel="[surfactant] (mol/m³)",
+			ylabel="expected\ninfo gain",
+			xticks=xticks
 		)
+		
 		hidexdecorations!(ax, grid=false)
+		hidexdecorations!(ax_t, grid=false)
 		linkxaxes!(ax_b, ax_t, ax)
+		
+		draw_axes!(ax_b)
+		
 		scatterlines!(
 			acq_scores[:, "c [mol/m³]"], acq_scores[:, "info gain"], color=colors[4]
 		)
+
+		c_next = acq_scores[argmax(acq_scores[:, "info gain"]), "c [mol/m³]"]
+		eig = maximum(acq_scores[:, "info gain"]) * 0.5
+		annotation!(
+			ax_b, c_next, eig, c_next, 0.0,
+		    text = "next [surfactant]",
+		    # path = Ann.Paths.Arc(0.3),
+		    style = Ann.Styles.LineArrow(),
+		    labelspace = :data,
+			fontsize=10
+		)
 	end
+	
 	if x_logscale
 		xlims!(10^(-4), 12)
 	else
@@ -674,7 +699,7 @@ begin
 		if iteration == 0
 			cs = collect(range(0.0, c_max, length=11))
 		elseif iteration == 1
-			cs = 0:1.0:c_max
+			cs = 0:2.0:c_max
 		elseif iteration == [2, 3]
 			cs = 0:0.5:c_max
 		else
@@ -704,7 +729,7 @@ begin
 			@progress for i = 1:length(cs)
 				αs[i] = α_ig(
 					cs[i], data, posterior_samples, 
-					n_samples=200, n_MC_samples=100
+					n_samples=350, n_MC_samples=350
 				)
 			end
 			jldsave(info_gain_filename; αs)
@@ -714,6 +739,9 @@ begin
 		end
 	end
 end
+
+# ╔═╡ 0bf3b347-c5df-4c35-a409-8e81d55a433c
+αs[1:2:end]
 
 # ╔═╡ a17064d4-38ce-49b6-a34a-1f1de50f63b6
 begin
@@ -1066,6 +1094,7 @@ viz_ls_fit(trad_data)
 # ╟─3dd13aca-090d-4ba4-8086-85c56f7d0065
 # ╠═2d2ca430-4c4a-4d7d-97b8-30a0c8aa5a97
 # ╠═ed12167e-0ee3-472c-93d5-3424453019c4
+# ╠═0bf3b347-c5df-4c35-a409-8e81d55a433c
 # ╠═a17064d4-38ce-49b6-a34a-1f1de50f63b6
 # ╠═e42e86a9-8b9a-432a-8c5a-f463d97ce1f2
 # ╟─78f08666-d2a3-4bd0-9c92-ecb383eebb07
