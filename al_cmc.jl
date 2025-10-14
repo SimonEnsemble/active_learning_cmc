@@ -52,8 +52,8 @@ function draw_axes!(ax)
 end
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-#surfactant = "Triton-X-100"
-surfactant = "OTG"
+surfactant = "Triton-X-100"
+#surfactant = "OTG"
 
 # ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 md"figure saving convention"
@@ -345,7 +345,7 @@ thing_to_color = Dict(
 function viz(
 	data::DataFrame, posterior_samples::DataFrame;
 	acq_scores::Union{DataFrame, Nothing}=nothing, n_samples_plot::Int=50,
-	x_logscale::Bool=false
+	x_logscale::Bool=false, α_ymax=nothing, include_ci_label=true
 )
 	if x_logscale
 		cs = 10.0 .^ range(-4, 1.75, length=100)
@@ -368,7 +368,7 @@ function viz(
 
 	id_start = x_logscale ? 2 : 1
 	
-	fig = Figure(size=isnothing(acq_scores) ? (500, 500) : (500, 550))
+	fig = Figure(size=(450, 450))
 	ax = Axis(
 		fig[1, 1], 
 		xlabel="[surfactant] (mol/m³)", 
@@ -376,29 +376,44 @@ function viz(
 		xticks=xticks,
 		xscale=x_logscale ? log10 : identity
 	)
-	ax_t = Axis(
-		fig[0, 1], 
-		ylabel=rich("posterior\ndensity\nof c", superscript("★")), 
-		title="surfactant: " * surfactant, 
-		xticks=xticks,
-		yticks=[0.0],
-		xscale=x_logscale ? log10 : identity
-	)
-
 	draw_axes!(ax)
-	draw_axes!(ax_t)
-	
-	linkxaxes!(ax, ax_t)
-	rowsize!(fig.layout, 1, Relative(isnothing(acq_scores) ? 0.75 : 0.65))
-	
+
 	# posterior over c★
-	density!(
-		ax_t, posterior_samples[:, "c★"], 
-		color=(thing_to_color["distn"], 0.1), strokewidth=3, 
-		strokecolor=thing_to_color["distn"], 
-		boundary=x_logscale ? (10^(-4), 12) : (0.0, c_max + 0.5),
-		npoints=500
-	)
+	if isnothing(acq_scores)
+		ax_t = Axis(
+			fig[0, 1], 
+			ylabel=rich("posterior\ndensity\nof c", superscript("★")), 
+			#title="surfactant: " * surfactant, 
+			xticks=xticks,
+			yticks=[0.0],
+			xscale=x_logscale ? log10 : identity
+		)
+
+		draw_axes!(ax_t)
+		linkxaxes!(ax, ax_t)
+
+		density!(
+			ax_t, posterior_samples[:, "c★"], 
+			color=(thing_to_color["distn"], 0.1), strokewidth=3, 
+			strokecolor=thing_to_color["distn"], 
+			boundary=x_logscale ? (10^(-4), 12) : (0.0, c_max + 0.5),
+			npoints=500
+		)
+
+		# credible interval and mode
+		lo, hi = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
+		lines!(ax_t, [lo, hi], [0, 0], color="gray")
+		c★_mode = posterior_c★_mode(posterior_samples)
+		hidexdecorations!(ax_t, grid=false)
+		
+		ci_string = rich(
+			"90% " * @sprintf("CI: [%.2f, %.2f] mol/m³", lo, hi) * "\n" * @sprintf(" mode: %.2f mol/m³", c★_mode)
+		)
+		
+		println("\tposterior mode: ", c★_mode)
+		println("\tCI width / posterior mode: ", (hi - lo) / c★_mode)
+	end
+	rowsize!(fig.layout, 1, Relative(0.75))
 
 	# posterior surface tension vs. surfactant conc. samples
 	for s = 1:n_samples_plot
@@ -438,35 +453,28 @@ function viz(
 		fontsize=14,
 	)
 
-	# credible interval and mode
-	lo, hi = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
-	lines!(ax_t, [lo, hi], [0, 0], color="gray")
-	c★_mode = posterior_c★_mode(posterior_samples)
-	
-	ci_string = rich(
-		"90% " * @sprintf("CI: [%.2f, %.2f] mol/m³", lo, hi) * "\n" * @sprintf(" mode: %.2f mol/m³", c★_mode)
-	)
-	
-	println("\tposterior mode: ", c★_mode)
-	println("\tCI width / posterior mode: ", (hi - lo) / c★_mode)
 	
 	# hidexdecorations!(ax_t, grid=false)
-	axislegend(
-		ax, unique=true, titlefont=:regular, 
-		position=surfactant == "OTG" ? (0.9, 0.9) : (0.9, 0.1), 
-		framevisible=true, bgcolor="white"
-	)
-	if surfactant == "OTG" && iteration == 0
+	if isnothing(acq_scores)
+		axislegend(
+			ax, unique=true, titlefont=:regular, 
+			position=surfactant == "OTG" ? (0.9, 0.9) : (0.1, 0.1), 
+			framevisible=true, bgcolor="white"
+		)
+	end
+	if surfactant == "OTG" && iteration in [0, 7]
 		halign = 0.95
 	else
 		halign = 0.05
 	end
-	Label(
-		fig[0, 1], ci_string, tellwidth=false, tellheight=false,
-		halign=halign, valign=0.9, justification=:left,
-		fontsize=12
-		# framevisible=true, bgcolor="white"
-	)
+	if include_ci_label
+		Label(
+			fig[0, 1], ci_string, tellwidth=false, tellheight=false,
+			halign=halign, valign=0.9, justification=:left,
+			fontsize=12
+			# framevisible=true, bgcolor="white"
+		)
+	end
 
 	if ! isnothing(acq_scores)
 		ax_b = Axis(
@@ -477,10 +485,9 @@ function viz(
 		)
 		
 		hidexdecorations!(ax, grid=false)
-		hidexdecorations!(ax_t, grid=false)
-		linkxaxes!(ax_b, ax_t, ax)
 		
 		draw_axes!(ax_b)
+		linkxaxes!(ax_b, ax)
 		
 		scatterlines!(
 			acq_scores[:, "c [mol/m³]"], acq_scores[:, "info gain"], color=colors[4]
@@ -491,12 +498,15 @@ function viz(
 		lines!(
 			ax_b, [c_next, c_next], [0, eig], linestyle=:dash, color="gray", linewidth=1
 		)
+		if ! isnothing(α_ymax)
+			ylims!(ax_b, -0.05, α_ymax)
+		end
 	end
 	
 	if x_logscale
 		xlims!(10^(-4), 12)
 	else
-		xlims!(-0.5, c_max + 0.5)
+		xlims!(-0.6, c_max + 0.6)
 	end
 
 	savename = surfactant
@@ -749,7 +759,8 @@ end
 if compute_α
 	viz(
 		data, posterior_samples, acq_scores=acq_scores, 
-		x_logscale=surfactant=="Triton-X-100"
+		x_logscale=surfactant=="Triton-X-100", α_ymax=0.8,
+		include_ci_label=false
 	)
 end
 
@@ -851,16 +862,25 @@ function entropy_dynamics(data::DataFrame)
 end
 
 # ╔═╡ 6d2ff265-8014-462e-982a-19bc1c19cef2
-if run_info_dynamics
-	info_dynamics, c★_posterior_samples = entropy_dynamics(data)
+if run_info_dynamics && iteration == nrow(_data)-2
+	info_dynamics_filename = surfactant * "_info_dynamics.jld2"
+	
+	if isfile(info_dynamics_filename)
+		info_dynamics = load(info_dynamics_filename, "info_dynamics")
+		c★_posterior_samples = load(info_dynamics_filename, "c★_posterior_samples")
+	else
+		info_dynamics, c★_posterior_samples = entropy_dynamics(data)
+		jldsave(info_dynamics_filename; info_dynamics, c★_posterior_samples)
+	end
 end
 
 # ╔═╡ 8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
 function viz_acquisition_dynamics(info_dynamics, c★_posterior_samples)
-	fig = Figure(size=(500, 500))
+	fig = Figure(size=(450, 450))
 	
 	ax = Axis(
-		fig[1, 1], xlabel="iteration", ylabel="CMC, c★ [mol/m³]", 
+		fig[1, 1], xlabel="iteration", 
+		ylabel=rich("CMC, c", superscript("★"), " [mol/m³]"), 
 		xticks=0:nrow(data)
 	)
 
@@ -884,8 +904,11 @@ function viz_acquisition_dynamics(info_dynamics, c★_posterior_samples)
 	)
 	violin!(
 		ax, c★_posterior_samples[:, "iteration"], c★_posterior_samples[:, "c★"],
-		side=:right, label="posterior density"
+		side=:right, label="posterior density",
+		color=(thing_to_color["distn"], 0.1), strokewidth=2,
+		strokecolor=thing_to_color["distn"]
 	)
+
 	for (i, row) in enumerate(eachrow(info_dynamics))
 		lines!(
 			ax,
@@ -894,10 +917,10 @@ function viz_acquisition_dynamics(info_dynamics, c★_posterior_samples)
 			color="gray", linewidth=2, label="90% credible interval"
 		)
 	end
-	axislegend(ax, unique=true)
-	ylims!(ax, 0, nothing)
+	axislegend(ax, unique=true, labelsize=14)
+	ylims!(ax, -0.5, nothing)
 	xlims!(ax, -0.1, nothing)
-	save(joinpath(figdir, surfactant * "posterior_over_iters.pdf"), fig)
+	save(joinpath(figdir, surfactant * "info_dynamics.pdf"), fig)
 	fig
 end
 
