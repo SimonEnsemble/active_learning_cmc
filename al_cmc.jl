@@ -487,14 +487,9 @@ function viz(
 		)
 
 		c_next = acq_scores[argmax(acq_scores[:, "info gain"]), "c [mol/m³]"]
-		eig = maximum(acq_scores[:, "info gain"]) * 0.5
-		annotation!(
-			ax_b, c_next, eig, c_next, 0.0,
-		    text = "next [surfactant]",
-		    # path = Ann.Paths.Arc(0.3),
-		    style = Ann.Styles.LineArrow(),
-		    labelspace = :data,
-			fontsize=10
+		eig = maximum(acq_scores[:, "info gain"])
+		lines!(
+			ax_b, [c_next, c_next], [0, eig], linestyle=:dash, color="gray", linewidth=1
 		)
 	end
 	
@@ -729,7 +724,7 @@ begin
 			@progress for i = 1:length(cs)
 				αs[i] = α_ig(
 					cs[i], data, posterior_samples, 
-					n_samples=350, n_MC_samples=350
+					n_samples=300, n_MC_samples=300
 				)
 			end
 			jldsave(info_gain_filename; αs)
@@ -860,57 +855,58 @@ if run_info_dynamics
 	info_dynamics, c★_posterior_samples = entropy_dynamics(data)
 end
 
-# ╔═╡ 348a7004-6a30-4586-9f0d-6fa25827102f
-function viz_entropy_over_iters(info_dynamics::DataFrame)
-	fig = Figure()
-	ax = Axis(
-		fig[1, 1], xlabel="iteration", ylabel="entropy, S(C★) [nat]", xticks=0:nrow(data),
-		title="entropy of posterior of CMC"
-	)
-	scatterlines!(
-		info_dynamics[:, "iteration"], info_dynamics[:, "entropy c★"],
-		markersize=20
-	)
-	ylims!(0, nothing)
-	save(joinpath(figdir, surfactant * "_entropy_over_iters.pdf"), fig)
-	fig
-end
-
-# ╔═╡ 5e9b76da-4f51-420c-badf-8b29c33e5a58
-if run_info_dynamics
-	viz_entropy_over_iters(info_dynamics)
-end
-
 # ╔═╡ 8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
-function viz_posterior_cmc_over_iters(c★_posterior_samples)
-	fig = Figure()
+function viz_acquisition_dynamics(info_dynamics, c★_posterior_samples)
+	fig = Figure(size=(500, 500))
+	
 	ax = Axis(
-		fig[1, 1], xlabel="iteration", ylabel="CMC, c★ [mol/m³]", xticks=0:nrow(data),
-		title="posterior and credible interval for CMC"
+		fig[1, 1], xlabel="iteration", ylabel="CMC, c★ [mol/m³]", 
+		xticks=0:nrow(data)
 	)
+
+	ax_t = Axis(fig[0, 1], ylabel="CMC entropy\n[nats]", xticks=0:nrow(data))
+	draw_axes!(ax_t)
+	draw_axes!(ax)
+	xlims!(ax_t, -0.1, nothing)
+	ylims!(ax_t, -0.1, nothing)
+	scatterlines!(
+		ax_t, info_dynamics[:, "iteration"], info_dynamics[:, "entropy c★"],
+		markersize=15, color=colors[4]
+	)
+
+	linkxaxes!(ax, ax_t)
+	hidexdecorations!(ax_t, grid=false)
+	rowsize!(fig.layout, 1, Relative(0.7))
+	
 	hlines!(
-		[9.0], label="literature-reported CMC", color=colors[3], linewidth=1
+		ax, [9.0], label="literature-reported CMC", 
+		color=colors[6], linewidth=2, linestyle=:dash
 	)
 	violin!(
-		c★_posterior_samples[:, "iteration"], c★_posterior_samples[:, "c★"],
+		ax, c★_posterior_samples[:, "iteration"], c★_posterior_samples[:, "c★"],
 		side=:right, label="posterior density"
 	)
 	for (i, row) in enumerate(eachrow(info_dynamics))
 		lines!(
+			ax,
 			[row["iteration"], row["iteration"]], 
 			[row["CI lo"], row["CI hi"]], 
-			color="black", linewidth=2, label="90% credible interval"
+			color="gray", linewidth=2, label="90% credible interval"
 		)
 	end
-	axislegend(unique=true)
-	ylims!(0, nothing)
+	axislegend(ax, unique=true)
+	ylims!(ax, 0, nothing)
+	xlims!(ax, -0.1, nothing)
 	save(joinpath(figdir, surfactant * "posterior_over_iters.pdf"), fig)
 	fig
 end
 
+# ╔═╡ 411ba75f-d3da-4d16-a373-6d1ed96e1e8c
+colors
+
 # ╔═╡ cf20b7c9-85bc-4f57-a74e-edcf77e3033d
 if run_info_dynamics
-	viz_posterior_cmc_over_iters(c★_posterior_samples)
+	viz_acquisition_dynamics(info_dynamics, c★_posterior_samples)
 end
 
 # ╔═╡ f2f70823-5990-43a2-a31e-60de32cee6d3
@@ -1107,9 +1103,8 @@ viz_ls_fit(trad_data)
 # ╟─dd46e6a0-4cf3-4b19-9137-df7c9e86fc14
 # ╠═e0d9f20d-7d0a-48c2-b10c-f0c251280a66
 # ╠═6d2ff265-8014-462e-982a-19bc1c19cef2
-# ╠═348a7004-6a30-4586-9f0d-6fa25827102f
-# ╠═5e9b76da-4f51-420c-badf-8b29c33e5a58
 # ╠═8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
+# ╠═411ba75f-d3da-4d16-a373-6d1ed96e1e8c
 # ╠═cf20b7c9-85bc-4f57-a74e-edcf77e3033d
 # ╟─f2f70823-5990-43a2-a31e-60de32cee6d3
 # ╠═6639dcc9-8e98-4746-b4be-93f1f4704859
