@@ -58,6 +58,9 @@ surfactant = "OTG"
 # ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 md"figure saving convention"
 
+# ╔═╡ 7d944db0-5885-4b2c-8ed5-b597dfa54cf1
+α = 0.1 # for CI
+
 # ╔═╡ 5a1768a0-865a-46ba-b70f-0194664d9d21
 md"# 🏓 experimental data
 
@@ -364,7 +367,8 @@ thing_to_color = Dict(
 	"model" => colors[5],
 	"distn" => colors[5],
 	"text" => colors[1],
-	"info gain" => colors[4]
+	"info gain" => colors[4],
+	"CI" => colors[end]
 )
 
 # ╔═╡ 06cf608e-782e-4c67-acb2-3aead3642704
@@ -427,8 +431,8 @@ function viz(
 		)
 
 		# credible interval and mode
-		lo, hi = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
-		lines!(ax_t, [lo, hi], [0, 0], color="gray")
+		lo, hi = quantile(posterior_samples[:, "c★"], [α/2, 1-α/2])
+		lines!(ax_t, [lo, hi], [0, 0], color=thing_to_color["CI"])
 		c★_mode = posterior_c★_mode(posterior_samples)
 		hidexdecorations!(ax_t, grid=false)
 		
@@ -878,7 +882,7 @@ function entropy_dynamics(data::DataFrame)
 		# compute entry and quantile of posterior of CMC
 		S[i+1] = entropy(posterior_samples[:, "c★"])
 
-		lo[i+1], hi[i+1] = quantile(posterior_samples[:, "c★"], [0.05, 0.95])
+		lo[i+1], hi[i+1] = quantile(posterior_samples[:, "c★"], [α/2, 1-α/2])
 	end
 	
 	info_dynamics = DataFrame(
@@ -905,7 +909,7 @@ end
 
 # ╔═╡ 8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
 function viz_acquisition_dynamics(
-	info_dynamics, c★_posterior_samples, info_dynamics_oracle
+	info_dynamics, c★_posterior_samples, oracle_info_dynamics
 )
 	fig = Figure(size=(450, 450))
 	
@@ -920,17 +924,27 @@ function viz_acquisition_dynamics(
 	draw_axes!(ax)
 	xlims!(ax_t, -0.1, nothing)
 	ylims!(ax_t, -0.1, nothing)
+
+	# oracle baseline
+	μ_S = [mean(s) for s in oracle_info_dynamics[:, "entropy c★"]]
+	σ_S = [std(s)  for s in oracle_info_dynamics[:, "entropy c★"]]
+	scatterlines!(
+		ax_t, oracle_info_dynamics[:, "iteration"], μ_S, marker=:rect,
+		markersize=15, color=colors[4], label="uniform design"
+	)
+	errorbars!(
+		ax_t, oracle_info_dynamics[:, "iteration"], μ_S, σ_S,
+		color=colors[4]
+	)
+
+	# BED
 	scatterlines!(
 		ax_t, info_dynamics[:, "iteration"], info_dynamics[:, "entropy c★"],
-		markersize=15, color=colors[4]
+		markersize=15, color=colors[5], label="BED"
 	)
-	for s = 1:length(info_dynamics_oracle)
-		scatterlines!(
-			ax_t, info_dynamics_oracle[s][:, "iteration"], 
-			info_dynamics[:, "entropy c★"],
-			markersize=15, color=colors[5]
-		)
-	end
+
+
+	axislegend(ax_t, position=:lb, labelsize=14)
 
 	linkxaxes!(ax, ax_t)
 	hidexdecorations!(ax_t, grid=false)
@@ -938,12 +952,12 @@ function viz_acquisition_dynamics(
 	
 	hlines!(
 		ax, [9.0], label="literature-reported CMC", 
-		color=colors[6], linewidth=2, linestyle=:dash
+		color=colors[6], linestyle=:dash
 	)
 	violin!(
 		ax, c★_posterior_samples[:, "iteration"], c★_posterior_samples[:, "c★"],
 		side=:right, label="posterior density",
-		color=(thing_to_color["distn"], 0.1), strokewidth=2,
+		color=(thing_to_color["distn"], 0.1), strokewidth=3,
 		strokecolor=thing_to_color["distn"]
 	)
 
@@ -952,9 +966,11 @@ function viz_acquisition_dynamics(
 			ax,
 			[row["iteration"], row["iteration"]], 
 			[row["CI lo"], row["CI hi"]], 
-			color="gray", linewidth=2, label="90% credible interval"
+			color=thing_to_color["CI"], 
+			label=@sprintf("%.0f%% credible interval", round((1-α)*100, digits=0))
 		)
 	end
+	
 	axislegend(ax, unique=true, labelsize=14)
 	ylims!(ax, -0.5, nothing)
 	xlims!(ax, -0.1, nothing)
@@ -964,13 +980,6 @@ end
 
 # ╔═╡ 411ba75f-d3da-4d16-a373-6d1ed96e1e8c
 colors
-
-# ╔═╡ cf20b7c9-85bc-4f57-a74e-edcf77e3033d
-if run_info_dynamics
-	viz_acquisition_dynamics(
-		info_dynamics, c★_posterior_samples, info_dynamics_oracle
-	)
-end
 
 # ╔═╡ f2f70823-5990-43a2-a31e-60de32cee6d3
 md"# into figure (traditional fitting routine with tons of data)"
@@ -1222,7 +1231,7 @@ function sample_oracle_posterior(
 
 	# compute entry and quantile of posterior of CMC
 	S = entropy(c★_samples)
-	lo, hi = quantile(c★_samples, [0.05, 0.95])
+	lo, hi = quantile(c★_samples, [α/2, 1-α/2])
 
 	return S, lo, hi
 end
@@ -1259,7 +1268,7 @@ end
 
 # ╔═╡ 42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
 if run_oracle
-	n_oracle_runs = 2
+	n_oracle_runs = 5
 	
 	oracle_filename = joinpath(
 		"data",
@@ -1273,7 +1282,15 @@ if run_oracle
 	else
 		oracle_info_dynamics = load(oracle_filename, "oracle_info_dynamics")
 	end
+	
 	oracle_info_dynamics
+end
+
+# ╔═╡ cf20b7c9-85bc-4f57-a74e-edcf77e3033d
+if run_info_dynamics
+	viz_acquisition_dynamics(
+		info_dynamics, c★_posterior_samples, oracle_info_dynamics
+	)
 end
 
 # ╔═╡ Cell order:
@@ -1286,6 +1303,7 @@ end
 # ╠═fe1e0cc3-59ee-4887-8c90-af2d40b81892
 # ╟─ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 # ╠═42c551c8-372e-430b-a756-10260d88936c
+# ╠═7d944db0-5885-4b2c-8ed5-b597dfa54cf1
 # ╟─5a1768a0-865a-46ba-b70f-0194664d9d21
 # ╠═49de609d-4cc3-46d6-9141-5de0395088fb
 # ╠═c451c216-4f29-4cf5-b367-fd486e634506
