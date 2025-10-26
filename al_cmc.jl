@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.17
+# v0.20.19
 
 using Markdown
 using InteractiveUtils
@@ -52,8 +52,8 @@ function draw_axes!(ax)
 end
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-surfactant = "Triton-X-100"
-#surfactant = "OTG"
+#surfactant = "Triton-X-100"
+surfactant = "OTG"
 
 # ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 md"figure saving convention"
@@ -125,6 +125,18 @@ function γ_model(c, γ₀, a, K, c★)
 		return γ₀ - a * log(1 + K * c★)
 	end
 end
+
+# ╔═╡ 1732dcd7-ede5-444f-943e-181b5044de53
+# helper (don't use for sampling cuz autodiff issues)
+struct ModelParams
+	γ₀::Float64
+	a::Float64
+	K::Float64
+	c★::Float64
+end
+
+# ╔═╡ 8534380f-ea85-4910-9487-de34e2bce5b8
+γ_model(c::Float64, θ::ModelParams) = γ_model(c, θ.γ₀, θ.a, θ.K, θ.c★)
 
 # ╔═╡ ca288f74-bc34-457f-8caa-ab1627f5c46f
 md"# Bayesian inference
@@ -239,6 +251,20 @@ function grab_posterior_sample(posterior_samples::DataFrame, params::Vector{Symb
 	i = sample(1:nrow(posterior_samples))
 	return Vector(posterior_samples[i, params])
 end
+
+# ╔═╡ 7ccbebc6-7d22-4888-8655-7edf835e5e92
+function sample_params(posterior_samples::DataFrame)
+	i = sample(1:nrow(posterior_samples))
+	return ModelParams(
+		posterior_samples[i, "γ₀"], 
+		posterior_samples[i, "a"],
+		posterior_samples[i, "K"],
+		posterior_samples[i, "c★"]
+	)
+end
+
+# ╔═╡ b427e4bf-b5e7-49fa-9ca8-50aab1def38f
+sample_params(posterior_samples)
 
 # ╔═╡ 34b9ba4a-5a24-48c1-9cbe-5f4084b501ed
 grab_posterior_sample(posterior_samples, params)
@@ -598,6 +624,9 @@ hist(
 # ╔═╡ fa9012a4-24f4-4358-92b3-74cb37270d31
 [entropy(Vector(chain[:c★][:, c])) for c = 1:n_chains]
 
+# ╔═╡ 617a2f73-a912-4c4a-979c-8125214aaf5f
+entropy(posterior_samples[:, "c★"])
+
 # ╔═╡ 64ebafed-7692-4fa1-bbed-fc2cde90af6b
 md"# acquisition: information gain
 
@@ -808,7 +837,7 @@ md"# post-AL analysis: info dynamics
 "
 
 # ╔═╡ dd46e6a0-4cf3-4b19-9137-df7c9e86fc14
-md"$(@bind run_info_dynamics PlutoUI.CheckBox(default=false))"
+md"$(@bind run_info_dynamics PlutoUI.CheckBox(default=false)) compute info dynamics"
 
 # ╔═╡ e0d9f20d-7d0a-48c2-b10c-f0c251280a66
 function entropy_dynamics(data::DataFrame)
@@ -875,7 +904,9 @@ if run_info_dynamics && iteration == nrow(_data)-2
 end
 
 # ╔═╡ 8fe4882b-0ffe-4b12-aee3-1e1d02dfd368
-function viz_acquisition_dynamics(info_dynamics, c★_posterior_samples)
+function viz_acquisition_dynamics(
+	info_dynamics, c★_posterior_samples, info_dynamics_oracle
+)
 	fig = Figure(size=(450, 450))
 	
 	ax = Axis(
@@ -893,6 +924,13 @@ function viz_acquisition_dynamics(info_dynamics, c★_posterior_samples)
 		ax_t, info_dynamics[:, "iteration"], info_dynamics[:, "entropy c★"],
 		markersize=15, color=colors[4]
 	)
+	for s = 1:length(info_dynamics_oracle)
+		scatterlines!(
+			ax_t, info_dynamics_oracle[s][:, "iteration"], 
+			info_dynamics[:, "entropy c★"],
+			markersize=15, color=colors[5]
+		)
+	end
 
 	linkxaxes!(ax, ax_t)
 	hidexdecorations!(ax_t, grid=false)
@@ -929,7 +967,9 @@ colors
 
 # ╔═╡ cf20b7c9-85bc-4f57-a74e-edcf77e3033d
 if run_info_dynamics
-	viz_acquisition_dynamics(info_dynamics, c★_posterior_samples)
+	viz_acquisition_dynamics(
+		info_dynamics, c★_posterior_samples, info_dynamics_oracle
+	)
 end
 
 # ╔═╡ f2f70823-5990-43a2-a31e-60de32cee6d3
@@ -1046,6 +1086,199 @@ colors
 # ╔═╡ a77f2620-c2fe-4d5d-a42c-6154e92195ea
 viz_ls_fit(trad_data)
 
+# ╔═╡ a543b2f5-7670-4e51-93ef-13059102041d
+md"# 🍀 oracle
+
+## sample an oracle data set
+"
+
+# ╔═╡ 49107424-36af-40f8-892d-7ffff94bbe1c
+function sample_from_oracle(
+	data::DataFrame,
+	posterior_samples::DataFrame,
+	n::Int
+)
+	# use all data for this
+	@assert iteration == nrow(_data) - 2
+	@assert surfactant == "OTG"
+
+	# design of experiments
+	#  uniform
+	if surfactant == "OTG"
+		cs = range(0.0, c_max, length=n+2)[2:end-1]
+	else
+		cs = exp.(range(log(0.001), log(c_max), length=n+1)[1:end-1])
+	end
+	
+	# sample a surface tension data gen model from posterior
+	i = sample(1:nrow(posterior_samples))
+	γ₀, a, K, c★ = posterior_samples[i, ["γ₀", "a", "K", "c★"]]
+
+	# sample data
+	oracle_data = DataFrame(
+		"[S] (mol/m³)" => cs,
+		"γ (N/m)" => γ_model.(cs, γ₀, a, K, c★) .+ σ * randn(n)
+	)
+
+	# we'd also have the initial expt data
+	push!(oracle_data, [data[1, "[S] (mol/m³)"], data[1, "γ (N/m)"]])
+	push!(oracle_data, [data[2, "[S] (mol/m³)"], data[2, "γ (N/m)"]])
+
+	sort!(oracle_data)
+	
+	return oracle_data, (γ₀, a, K, c★)
+end
+
+# ╔═╡ 23953fa3-f2fb-4af3-8652-73aa2ab163fe
+oracle_data, θ = sample_from_oracle(data, posterior_samples, 5)
+
+# ╔═╡ fc42a97c-6718-48e7-984d-60194f71bb9e
+function viz_oracle_data(
+	oracle_data::DataFrame, θ;
+	x_logscale::Bool=false
+)
+	if x_logscale
+		cs = 10.0 .^ range(-4, 1.75, length=100)
+	else
+		cs = range(1e-6, c_max + 1.0, length=1000)
+	end
+	
+	if surfactant == "OTG"
+		xticks = range(0.0, 30.0, length=11)
+	else
+		if x_logscale
+			xticks = (
+				[0.0001, 0.001, 0.01, 0.1, 1, 10],
+				["0.0001", "0.001", "0.01", "0.1", "1", "10"],
+			)
+		else
+			xticks = range(0.0, 10.0, length=11)
+		end
+	end
+
+	id_start = x_logscale ? 2 : 1
+	
+	fig = Figure(size=(450, 400))
+	ax = Axis(
+		fig[1, 1], 
+		xlabel="[surfactant] (mol/m³)", 
+		ylabel="surface tension (N/m)",
+		xticks=xticks,
+		xscale=x_logscale ? log10 : identity
+	)
+	draw_axes!(ax)
+
+	# model
+	lines!(
+		ax, cs, γ_model.(cs, θ...), 
+		color=thing_to_color["model"], label="model (sample)"
+	)
+
+	# data
+	scatter!(
+		ax, 
+		oracle_data[id_start:end, "[S] (mol/m³)"], 
+		oracle_data[id_start:end, "γ (N/m)"], 
+		label="oracle data",
+		color=thing_to_color["data"], markersize=16,
+		strokewidth=2, strokecolor="black"
+	)
+		
+	if x_logscale
+		xlims!(10^(-4), 12)
+	else
+		xlims!(-0.6, c_max + 0.6)
+	end
+
+	save(fig_savetag * "oracle.pdf", fig)
+	fig
+end
+
+# ╔═╡ 1af99cea-9aa3-4261-9280-10f3593b8e42
+viz_oracle_data(oracle_data, θ)
+
+# ╔═╡ 5f920441-a7ae-4dcd-8e11-cf8b16c20f7a
+md"## entropy dynamics of oracle-obtained data"
+
+# ╔═╡ ad1bece1-c105-476c-973e-bf3ad31b7e2f
+md"$(@bind run_oracle PlutoUI.CheckBox(default=false)) compute oracle entropy"
+
+# ╔═╡ c1c71067-84b5-474a-a408-ea39aef651fa
+info_dynamics
+
+# ╔═╡ baaa5a54-0877-44fa-aca5-1eace159caa7
+function sample_oracle_posterior(
+	data::DataFrame,
+	posterior_samples::DataFrame,
+	n::Int
+)
+	# sample from oracle
+	oracle_data, _ = sample_from_oracle(data, posterior_samples, n)
+
+	# do MCMC
+	model = cmc_model(oracle_data)
+	chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
+	c★_samples = DataFrame(chain)[:, "c★"]
+	if ! all(gelmandiag(chain)[:, :psrfci] .< 1.1)
+		println("chain not converged.")
+	end
+
+	# compute entry and quantile of posterior of CMC
+	S = entropy(c★_samples)
+	lo, hi = quantile(c★_samples, [0.05, 0.95])
+
+	return S, lo, hi
+end
+
+# ╔═╡ a2be7b91-e05a-464d-b55f-d743ded82b87
+#S, lo, hi = sample_oracle_posterior(data, posterior_samples, 2)
+
+# ╔═╡ 84098824-8372-4091-a4a8-21e140c4e3c4
+function oracle_entropy_dynamics(
+	data::DataFrame, 
+	posterior_samples::DataFrame,
+	n_runs::Int=2
+)
+	oracle_info_dynamics = DataFrame(
+		"iteration" => 0:iteration,
+		"entropy c★" => zeros(iteration+1),		
+		"lo" => zeros(iteration+1),
+		"hi" => zeros(iteration+1),
+	)
+	
+	for i = 0:iteration
+		S, lo, hi = zeros(n_runs), zeros(n_runs), zeros(n_runs)
+		for r = 1:n_runs
+			S[r], lo[r], hi[r] = sample_oracle_posterior(data, posterior_samples, i)
+		end
+
+		oracle_info_dynamics[i+1, "entropy c★"] = mean(S)
+		oracle_info_dynamics[i+1, "lo"] = mean(lo)
+		oracle_info_dynamics[i+1, "hi"] = mean(hi)
+	end
+	
+	return oracle_info_dynamics
+end
+
+# ╔═╡ 42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
+if run_oracle
+	n_oracle_runs = 5
+	
+	oracle_filename = joinpath(
+		"data",
+		"oracle_info_dynamics" * surfactant * "$(n_oracle_runs)_samples" * ".jld2"
+	)
+
+	if ! isfile(oracle_filename)
+		oracle_info_dynamics = oracle_entropy_dynamics(data, posterior_samples)
+		
+		jldsave(oracle_filename; oracle_info_dynamics)
+	else
+		oracle_info_dynamics = load(oracle_filename, "oracle_info_dynamics")
+	end
+	oracle_info_dynamics
+end
+
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
 # ╠═1e324846-70da-494c-bb88-8668a0f0e526
@@ -1061,6 +1294,8 @@ viz_ls_fit(trad_data)
 # ╠═c451c216-4f29-4cf5-b367-fd486e634506
 # ╟─874cc30e-0d7d-4a82-a523-c0caa9da4a59
 # ╠═b686a78a-fba7-41f5-b30f-621e3416ae96
+# ╠═1732dcd7-ede5-444f-943e-181b5044de53
+# ╠═8534380f-ea85-4910-9487-de34e2bce5b8
 # ╟─ca288f74-bc34-457f-8caa-ab1627f5c46f
 # ╟─c40e781e-bd35-4541-9eb3-f943df41587d
 # ╠═67d23697-2d05-46f2-80e4-75c85c369f80
@@ -1079,6 +1314,8 @@ viz_ls_fit(trad_data)
 # ╠═52080b61-1e8d-4343-b79c-b3b39861e2c8
 # ╟─fbe04777-fe1c-4f75-8059-80abd2da17da
 # ╠═52dc4eb7-702c-4c1f-967d-34c431b74436
+# ╠═7ccbebc6-7d22-4888-8655-7edf835e5e92
+# ╠═b427e4bf-b5e7-49fa-9ca8-50aab1def38f
 # ╠═34b9ba4a-5a24-48c1-9cbe-5f4084b501ed
 # ╟─fdd7373d-47e7-4f17-869f-03b2145c1c02
 # ╠═14334653-2134-4782-a2d9-ef84837b2c45
@@ -1103,6 +1340,7 @@ viz_ls_fit(trad_data)
 # ╟─aeaac1d5-d5f4-4993-ae95-e8b9a5c82e77
 # ╠═64b3b08d-733d-4cbb-b488-7a54778a4980
 # ╠═fa9012a4-24f4-4358-92b3-74cb37270d31
+# ╠═617a2f73-a912-4c4a-979c-8125214aaf5f
 # ╟─64ebafed-7692-4fa1-bbed-fc2cde90af6b
 # ╠═97e4a572-0bfe-4b0c-b3a6-36201ae36701
 # ╠═f1ec7091-d47e-475d-885a-fcc96ceab663
@@ -1139,3 +1377,15 @@ viz_ls_fit(trad_data)
 # ╠═1953f157-ae09-47a7-854c-2352f8b5f131
 # ╠═ab9f84b7-99e6-4689-954e-e44b7817f679
 # ╠═a77f2620-c2fe-4d5d-a42c-6154e92195ea
+# ╟─a543b2f5-7670-4e51-93ef-13059102041d
+# ╠═49107424-36af-40f8-892d-7ffff94bbe1c
+# ╠═23953fa3-f2fb-4af3-8652-73aa2ab163fe
+# ╠═1af99cea-9aa3-4261-9280-10f3593b8e42
+# ╠═fc42a97c-6718-48e7-984d-60194f71bb9e
+# ╟─5f920441-a7ae-4dcd-8e11-cf8b16c20f7a
+# ╟─ad1bece1-c105-476c-973e-bf3ad31b7e2f
+# ╠═c1c71067-84b5-474a-a408-ea39aef651fa
+# ╠═baaa5a54-0877-44fa-aca5-1eace159caa7
+# ╠═a2be7b91-e05a-464d-b55f-d743ded82b87
+# ╠═84098824-8372-4091-a4a8-21e140c4e3c4
+# ╠═42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
