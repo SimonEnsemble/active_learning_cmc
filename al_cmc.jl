@@ -1203,9 +1203,6 @@ md"## entropy dynamics of oracle-obtained data"
 # ╔═╡ ad1bece1-c105-476c-973e-bf3ad31b7e2f
 md"$(@bind run_oracle PlutoUI.CheckBox(default=false)) compute oracle entropy"
 
-# ╔═╡ c1c71067-84b5-474a-a408-ea39aef651fa
-info_dynamics
-
 # ╔═╡ baaa5a54-0877-44fa-aca5-1eace159caa7
 function sample_oracle_posterior(
 	data::DataFrame,
@@ -1241,9 +1238,9 @@ function oracle_entropy_dynamics(
 )
 	oracle_info_dynamics = DataFrame(
 		"iteration" => 0:iteration,
-		"entropy c★" => zeros(iteration+1),		
-		"lo" => zeros(iteration+1),
-		"hi" => zeros(iteration+1),
+		"entropy c★" => [zeros(n_runs) for i = 0:iteration],		
+		"lo" => [zeros(n_runs) for i = 0:iteration],
+		"hi" => [zeros(n_runs) for i = 0:iteration]
 	)
 	
 	for i = 0:iteration
@@ -1252,9 +1249,9 @@ function oracle_entropy_dynamics(
 			S[r], lo[r], hi[r] = sample_oracle_posterior(data, posterior_samples, i)
 		end
 
-		oracle_info_dynamics[i+1, "entropy c★"] = mean(S)
-		oracle_info_dynamics[i+1, "lo"] = mean(lo)
-		oracle_info_dynamics[i+1, "hi"] = mean(hi)
+		oracle_info_dynamics[i+1, "entropy c★"] = S
+		oracle_info_dynamics[i+1, "lo"] = lo
+		oracle_info_dynamics[i+1, "hi"] = hi
 	end
 	
 	return oracle_info_dynamics
@@ -1262,7 +1259,7 @@ end
 
 # ╔═╡ 42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
 if run_oracle
-	n_oracle_runs = 5
+	n_oracle_runs = 2
 	
 	oracle_filename = joinpath(
 		"data",
@@ -1384,7 +1381,6 @@ end
 # ╠═fc42a97c-6718-48e7-984d-60194f71bb9e
 # ╟─5f920441-a7ae-4dcd-8e11-cf8b16c20f7a
 # ╟─ad1bece1-c105-476c-973e-bf3ad31b7e2f
-# ╠═c1c71067-84b5-474a-a408-ea39aef651fa
 # ╠═baaa5a54-0877-44fa-aca5-1eace159caa7
 # ╠═a2be7b91-e05a-464d-b55f-d743ded82b87
 # ╠═84098824-8372-4091-a4a8-21e140c4e3c4
