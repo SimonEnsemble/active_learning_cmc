@@ -52,8 +52,8 @@ function draw_axes!(ax)
 end
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-#surfactant = "Triton-X-100"
-surfactant = "OTG"
+surfactant = "Triton-X-100"
+# surfactant = "OTG"
 
 # ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 md"figure saving convention"
@@ -421,6 +421,11 @@ function viz(
 
 		draw_axes!(ax_t)
 		linkxaxes!(ax, ax_t)
+		if x_logscale
+			for ax in [ax, ax_t]
+				lines!(ax, [0.0001, 10], zeros(2), color="black", linewidth=1)
+			end
+		end
 
 		density!(
 			ax_t, posterior_samples[:, "c★"], 
@@ -556,6 +561,14 @@ viz(
 	data, posterior_samples, n_samples_plot=25, 
 	x_logscale=surfactant=="Triton-X-100"
 )
+
+# ╔═╡ 2b5d68bc-a319-45c0-bc4a-f576984605f0
+for param in params
+	println(param)
+	println("\tμ: ", mean(posterior_samples[:, param]))
+	local lo, hi = quantile(posterior_samples[:, param], [α/2, 1-α/2])
+	println("\tCI: ", (lo, hi))
+end
 
 # ╔═╡ 49199459-f93c-4a23-8bed-1ea6b2fa2c94
 md"# entropy calculations
@@ -1293,6 +1306,15 @@ if run_info_dynamics
 	)
 end
 
+# ╔═╡ 94b20c1e-cd93-4d23-90f2-64467a49cd46
+md"summary: CI with uniform design"
+
+# ╔═╡ 5ac59e06-c21c-4977-83b5-ec2d5c3e1b11
+mean(oracle_info_dynamics[end, "lo"]), mean(oracle_info_dynamics[end, "hi"])
+
+# ╔═╡ 71a9ce44-6337-456e-8675-cfe21a8ef02a
+quantile(posterior_samples[:, "c★"], [α/2, 1-α/2])
+
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
 # ╠═1e324846-70da-494c-bb88-8668a0f0e526
@@ -1348,6 +1370,7 @@ end
 # ╠═d39866ea-1b9c-4723-afe2-401872285f9e
 # ╠═947e44ff-e2e0-495a-a7a6-7632d18733fb
 # ╠═e6ea645f-282c-4598-8755-be568d7b3d2e
+# ╠═2b5d68bc-a319-45c0-bc4a-f576984605f0
 # ╟─49199459-f93c-4a23-8bed-1ea6b2fa2c94
 # ╠═f571f7f7-928a-4908-9a18-9cf90b3466d6
 # ╠═192b5353-c0d5-457a-bf59-579709d8f2ec
@@ -1403,3 +1426,6 @@ end
 # ╠═a2be7b91-e05a-464d-b55f-d743ded82b87
 # ╠═84098824-8372-4091-a4a8-21e140c4e3c4
 # ╠═42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
+# ╟─94b20c1e-cd93-4d23-90f2-64467a49cd46
+# ╠═5ac59e06-c21c-4977-83b5-ec2d5c3e1b11
+# ╠═71a9ce44-6337-456e-8675-cfe21a8ef02a
