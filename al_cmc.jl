@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.19
+# v0.20.20
 
 using Markdown
 using InteractiveUtils
@@ -52,8 +52,8 @@ function draw_axes!(ax)
 end
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-surfactant = "Triton-X-100"
-# surfactant = "OTG"
+# surfactant = "Triton-X-100"
+surfactant = "OTG"
 
 # ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 md"figure saving convention"
@@ -653,6 +653,22 @@ calculate information gain about the CMC
 # ╔═╡ 97e4a572-0bfe-4b0c-b3a6-36201ae36701
 params
 
+# ╔═╡ d1b1f621-92be-4ffd-b988-66fde4f8f06d
+function get_initial_params(
+	posterior_samples::DataFrame
+)
+	return [
+		InitFromParams(
+			NamedTuple(
+				zip(
+					params,
+					grab_posterior_sample(posterior_samples, params)
+				)
+			)
+		) for c = 1:n_chains
+	]
+end
+
 # ╔═╡ f1ec7091-d47e-475d-885a-fcc96ceab663
 function α_ig(
 	c, data::DataFrame, posterior_samples::DataFrame; 
@@ -681,9 +697,7 @@ function α_ig(
 		update posterior with fantasized data point
 		=#
 		new_model = cmc_model(new_data)
-		initial_params = [
-			grab_posterior_sample(posterior_samples, params) for c = 1:n_chains
-		]
+		initial_params = get_initial_params(posterior_samples)
 		new_chain = DataFrame(
 			sample(
 				new_model, NUTS(), MCMCThreads(), 
@@ -714,7 +728,7 @@ end
 md"time a single run"
 
 # ╔═╡ fc333a63-86f1-43d6-9f7e-1f43bd926caf
-# @time α_ig(1.0, data, posterior_samples, n_samples=100, n_MC_samples=100)
+# @time α_ig(1.0, data, posterior_samples, n_samples=3, n_MC_samples=4)
 
 # ╔═╡ 1b92732c-e918-41d1-b422-822794f850e5
 md"
@@ -956,7 +970,6 @@ function viz_acquisition_dynamics(
 		markersize=15, color=colors[5], label="BED"
 	)
 
-
 	axislegend(ax_t, position=:lb, labelsize=14)
 
 	linkxaxes!(ax, ax_t)
@@ -1115,40 +1128,52 @@ md"# 🍀 oracle
 "
 
 # ╔═╡ 49107424-36af-40f8-892d-7ffff94bbe1c
-function sample_from_oracle(
-	data::DataFrame,
-	posterior_samples::DataFrame,
-	n::Int
-)
-	# use all data for this
-	@assert iteration == nrow(_data) - 2
-	@assert surfactant == "OTG"
+begin
+	function sample_from_oracle(
+		data::DataFrame,
+		posterior_samples::DataFrame,
+		cs::Vector{Float64}
+	)
+		# use all data for this
+		@assert iteration == nrow(_data) - 2
+		@assert surfactant == "OTG"
 
-	# design of experiments
-	#  uniform
-	if surfactant == "OTG"
-		cs = range(0.0, c_max, length=n+2)[2:end-1]
-	else
-		cs = exp.(range(log(0.001), log(c_max), length=n+1)[1:end-1])
+		n = length(cs)
+		
+		# sample a surface tension data gen model from posterior
+		i = sample(1:nrow(posterior_samples))
+		γ₀, a, K, c★ = posterior_samples[i, ["γ₀", "a", "K", "c★"]]
+	
+		# sample data
+		oracle_data = DataFrame(
+			"[S] (mol/m³)" => cs,
+			"γ (N/m)" => γ_model.(cs, γ₀, a, K, c★) .+ σ * randn(n)
+		)
+	
+		# we'd also have the initial expt data
+		push!(oracle_data, [data[1, "[S] (mol/m³)"], data[1, "γ (N/m)"]])
+		push!(oracle_data, [data[2, "[S] (mol/m³)"], data[2, "γ (N/m)"]])
+	
+		sort!(oracle_data)
+		
+		return oracle_data, (γ₀, a, K, c★)
 	end
 	
-	# sample a surface tension data gen model from posterior
-	i = sample(1:nrow(posterior_samples))
-	γ₀, a, K, c★ = posterior_samples[i, ["γ₀", "a", "K", "c★"]]
-
-	# sample data
-	oracle_data = DataFrame(
-		"[S] (mol/m³)" => cs,
-		"γ (N/m)" => γ_model.(cs, γ₀, a, K, c★) .+ σ * randn(n)
+	function sample_from_oracle(
+		data::DataFrame,
+		posterior_samples::DataFrame,
+		n::Int
 	)
+		# design of experiments
+		#  uniform
+		if surfactant == "OTG"
+			cs = range(0.0, c_max, length=n+2)[2:end-1]
+		else
+			cs = exp.(range(log(0.001), log(c_max), length=n+1)[1:end-1])
+		end
 
-	# we'd also have the initial expt data
-	push!(oracle_data, [data[1, "[S] (mol/m³)"], data[1, "γ (N/m)"]])
-	push!(oracle_data, [data[2, "[S] (mol/m³)"], data[2, "γ (N/m)"]])
-
-	sort!(oracle_data)
-	
-	return oracle_data, (γ₀, a, K, c★)
+		return sample_from_oracle(data, posterior_samples, collect(cs))
+	end
 end
 
 # ╔═╡ 23953fa3-f2fb-4af3-8652-73aa2ab163fe
@@ -1222,21 +1247,22 @@ viz_oracle_data(oracle_data, θ)
 # ╔═╡ 5f920441-a7ae-4dcd-8e11-cf8b16c20f7a
 md"## entropy dynamics of oracle-obtained data"
 
-# ╔═╡ ad1bece1-c105-476c-973e-bf3ad31b7e2f
-md"$(@bind run_oracle PlutoUI.CheckBox(default=false)) compute oracle entropy"
-
 # ╔═╡ baaa5a54-0877-44fa-aca5-1eace159caa7
 function sample_oracle_posterior(
 	data::DataFrame,
 	posterior_samples::DataFrame,
-	n::Int
+	n_MC_samples::Int,
+	n::Int # number of data to sample
 )
 	# sample from oracle
 	oracle_data, _ = sample_from_oracle(data, posterior_samples, n)
 
 	# do MCMC
 	model = cmc_model(oracle_data)
-	chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
+	chain = sample(
+		model, NUTS(), MCMCThreads(), n_MC_samples, n_chains,
+		progress=false, initial_params=get_initial_params(posterior_samples)
+	)
 	c★_samples = DataFrame(chain)[:, "c★"]
 	if ! all(gelmandiag(chain)[:, :psrfci] .< 1.1)
 		println("chain not converged.")
@@ -1249,26 +1275,27 @@ function sample_oracle_posterior(
 	return S, lo, hi
 end
 
-# ╔═╡ a2be7b91-e05a-464d-b55f-d743ded82b87
-#S, lo, hi = sample_oracle_posterior(data, posterior_samples, 2)
-
 # ╔═╡ 84098824-8372-4091-a4a8-21e140c4e3c4
 function oracle_entropy_dynamics(
 	data::DataFrame, 
-	posterior_samples::DataFrame,
-	n_runs::Int=2
+	posterior_samples::DataFrame;
+	n_runs::Int=2,
+	n_MC_samples::Int=n_MC_samples,
+	total_iterations=iteration
 )
 	oracle_info_dynamics = DataFrame(
-		"iteration" => 0:iteration,
-		"entropy c★" => [zeros(n_runs) for i = 0:iteration],		
-		"lo" => [zeros(n_runs) for i = 0:iteration],
-		"hi" => [zeros(n_runs) for i = 0:iteration]
+		"iteration" => 0:total_iterations,
+		"entropy c★" => [zeros(n_runs) for i = 0:total_iterations],		
+		"lo" => [zeros(n_runs) for i = 0:total_iterations],
+		"hi" => [zeros(n_runs) for i = 0:total_iterations]
 	)
 	
-	for i = 0:iteration
+	@progress for i = 0:total_iterations
 		S, lo, hi = zeros(n_runs), zeros(n_runs), zeros(n_runs)
 		for r = 1:n_runs
-			S[r], lo[r], hi[r] = sample_oracle_posterior(data, posterior_samples, i)
+			S[r], lo[r], hi[r] = sample_oracle_posterior(
+				data, posterior_samples, n_MC_samples, i
+			)
 		end
 
 		oracle_info_dynamics[i+1, "entropy c★"] = S
@@ -1280,8 +1307,8 @@ function oracle_entropy_dynamics(
 end
 
 # ╔═╡ 42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
-if run_oracle
-	n_oracle_runs = 5
+begin
+	n_oracle_runs = 10
 	
 	oracle_filename = joinpath(
 		"data",
@@ -1289,7 +1316,10 @@ if run_oracle
 	)
 
 	if ! isfile(oracle_filename)
-		oracle_info_dynamics = oracle_entropy_dynamics(data, posterior_samples)
+		oracle_info_dynamics = oracle_entropy_dynamics(
+			data, posterior_samples, 
+			n_runs=n_oracle_runs, total_iterations=20, n_MC_samples=5000
+		)
 		
 		jldsave(oracle_filename; oracle_info_dynamics)
 	else
@@ -1302,18 +1332,55 @@ end
 # ╔═╡ cf20b7c9-85bc-4f57-a74e-edcf77e3033d
 if run_info_dynamics
 	viz_acquisition_dynamics(
-		info_dynamics, c★_posterior_samples, oracle_info_dynamics
+		info_dynamics, c★_posterior_samples, 
+		filter(row -> row["iteration"] ≤ 7, oracle_info_dynamics)
 	)
 end
 
 # ╔═╡ 94b20c1e-cd93-4d23-90f2-64467a49cd46
 md"summary: CI with uniform design"
 
-# ╔═╡ 5ac59e06-c21c-4977-83b5-ec2d5c3e1b11
-mean(oracle_info_dynamics[end, "lo"]), mean(oracle_info_dynamics[end, "hi"])
+# ╔═╡ 88d84b3d-dae5-4aef-b736-8a8372562867
+begin
+	local fig = Figure()
+	local ax  = Axis(
+		fig[1, 1], 
+		xlabel="iteration",
+		ylabel="CMC entropy\n[nats]", 
+		xticks=0:maximum(oracle_info_dynamics[:, "iteration"]),
+		xticklabelrotation=π/2
+	)
+	draw_axes!(ax)
 
-# ╔═╡ 71a9ce44-6337-456e-8675-cfe21a8ef02a
-quantile(posterior_samples[:, "c★"], [α/2, 1-α/2])
+	# oracle baseline
+	local μ_S = [mean(s) for s in oracle_info_dynamics[:, "entropy c★"]]
+	local σ_S = [std(s)  for s in oracle_info_dynamics[:, "entropy c★"]]
+	scatterlines!(
+		oracle_info_dynamics[:, "iteration"], μ_S, marker=:rect,
+		markersize=15, color=colors[4], label="uniform design"
+	)
+	errorbars!(
+		oracle_info_dynamics[:, "iteration"], μ_S, σ_S,
+		color=colors[4]
+	)
+
+	hlines!(
+		info_dynamics[end, "entropy c★"], linestyle=:dash, linewidth=1, color="gray"
+	)
+
+	# BED
+	scatterlines!(
+		info_dynamics[:, "iteration"], info_dynamics[:, "entropy c★"],
+		markersize=15, color=colors[5], label="BED"
+	)
+	fig
+end
+
+# ╔═╡ 4a7e282c-87f3-493e-b27c-e971d6ce6075
+data[3:end, "[S] (mol/m³)"]
+
+# ╔═╡ 2cc5bd71-ca6b-4a4e-b814-9d5e1717d8b9
+
 
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
@@ -1381,6 +1448,7 @@ quantile(posterior_samples[:, "c★"], [α/2, 1-α/2])
 # ╠═617a2f73-a912-4c4a-979c-8125214aaf5f
 # ╟─64ebafed-7692-4fa1-bbed-fc2cde90af6b
 # ╠═97e4a572-0bfe-4b0c-b3a6-36201ae36701
+# ╠═d1b1f621-92be-4ffd-b988-66fde4f8f06d
 # ╠═f1ec7091-d47e-475d-885a-fcc96ceab663
 # ╟─e759e6f4-3366-4d94-93fc-1f6f5cb59e2b
 # ╠═fc333a63-86f1-43d6-9f7e-1f43bd926caf
@@ -1421,11 +1489,10 @@ quantile(posterior_samples[:, "c★"], [α/2, 1-α/2])
 # ╠═1af99cea-9aa3-4261-9280-10f3593b8e42
 # ╠═fc42a97c-6718-48e7-984d-60194f71bb9e
 # ╟─5f920441-a7ae-4dcd-8e11-cf8b16c20f7a
-# ╟─ad1bece1-c105-476c-973e-bf3ad31b7e2f
 # ╠═baaa5a54-0877-44fa-aca5-1eace159caa7
-# ╠═a2be7b91-e05a-464d-b55f-d743ded82b87
 # ╠═84098824-8372-4091-a4a8-21e140c4e3c4
 # ╠═42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
 # ╟─94b20c1e-cd93-4d23-90f2-64467a49cd46
-# ╠═5ac59e06-c21c-4977-83b5-ec2d5c3e1b11
-# ╠═71a9ce44-6337-456e-8675-cfe21a8ef02a
+# ╠═88d84b3d-dae5-4aef-b736-8a8372562867
+# ╠═4a7e282c-87f3-493e-b27c-e971d6ce6075
+# ╠═2cc5bd71-ca6b-4a4e-b814-9d5e1717d8b9
