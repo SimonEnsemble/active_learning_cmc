@@ -52,8 +52,8 @@ function draw_axes!(ax)
 end
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-# surfactant = "Triton-X-100"
-surfactant = "OTG"
+surfactant = "Triton-X-100"
+# surfactant = "OTG"
 
 # ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 md"figure saving convention"
@@ -412,7 +412,7 @@ function viz(
 	if isnothing(acq_scores)
 		ax_t = Axis(
 			fig[0, 1], 
-			ylabel=rich("posterior\ndensity\nof c", superscript("★")), 
+			ylabel=rich("posterior\ndensity\nof CMC"), 
 			#title="surfactant: " * surfactant, 
 			xticks=xticks,
 			yticks=[0.0],
@@ -942,11 +942,11 @@ function viz_acquisition_dynamics(
 	
 	ax = Axis(
 		fig[1, 1], xlabel="iteration", 
-		ylabel=rich("CMC, c", superscript("★"), " [mol/m³]"), 
+		ylabel=rich("CMC [mol/m³]"), 
 		xticks=0:nrow(data)
 	)
 
-	ax_t = Axis(fig[0, 1], ylabel="CMC entropy\n[nats]", xticks=0:nrow(data))
+	ax_t = Axis(fig[0, 1], ylabel="entropy of CMC\n[nats]", xticks=0:nrow(data))
 	draw_axes!(ax_t)
 	draw_axes!(ax)
 	xlims!(ax_t, -0.1, nothing)
@@ -974,7 +974,7 @@ function viz_acquisition_dynamics(
 
 	linkxaxes!(ax, ax_t)
 	hidexdecorations!(ax_t, grid=false)
-	rowsize!(fig.layout, 1, Relative(0.7))
+	rowsize!(fig.layout, 1, Relative(0.6))
 	
 	hlines!(
 		ax, [9.0], label="literature-reported CMC", 
@@ -1248,15 +1248,11 @@ viz_oracle_data(oracle_data, θ)
 md"## entropy dynamics of oracle-obtained data"
 
 # ╔═╡ baaa5a54-0877-44fa-aca5-1eace159caa7
-function sample_oracle_posterior(
-	data::DataFrame,
+function compute_S_lo_hi(
+	oracle_data::DataFrame,
 	posterior_samples::DataFrame,
-	n_MC_samples::Int,
-	n::Int # number of data to sample
+	n_MC_samples::Int
 )
-	# sample from oracle
-	oracle_data, _ = sample_from_oracle(data, posterior_samples, n)
-
 	# do MCMC
 	model = cmc_model(oracle_data)
 	chain = sample(
@@ -1293,8 +1289,11 @@ function oracle_entropy_dynamics(
 	@progress for i = 0:total_iterations
 		S, lo, hi = zeros(n_runs), zeros(n_runs), zeros(n_runs)
 		for r = 1:n_runs
-			S[r], lo[r], hi[r] = sample_oracle_posterior(
-				data, posterior_samples, n_MC_samples, i
+			# sample data from oracle
+			oracle_data, _ = sample_from_oracle(data, posterior_samples, i)
+			
+			S[r], lo[r], hi[r] = compute_S_lo_hi(
+				oracle_data, posterior_samples, n_MC_samples
 			)
 		end
 
@@ -1306,6 +1305,9 @@ function oracle_entropy_dynamics(
 	return oracle_info_dynamics
 end
 
+# ╔═╡ 61b6c6df-7dcf-4d86-ad56-19cbe285607b
+md"do oracle? $(@bind do_oracle CheckBox())"
+
 # ╔═╡ 42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
 begin
 	n_oracle_runs = 10
@@ -1315,7 +1317,7 @@ begin
 		"oracle_info_dynamics" * surfactant * "$(n_oracle_runs)_samples" * ".jld2"
 	)
 
-	if ! isfile(oracle_filename)
+	if (! isfile(oracle_filename)) && do_oracle
 		oracle_info_dynamics = oracle_entropy_dynamics(
 			data, posterior_samples, 
 			n_runs=n_oracle_runs, total_iterations=20, n_MC_samples=5000
@@ -1340,13 +1342,50 @@ end
 # ╔═╡ 94b20c1e-cd93-4d23-90f2-64467a49cd46
 md"summary: CI with uniform design"
 
+# ╔═╡ 7569b873-faa3-431f-967e-94d2800f4d05
+data
+
+# ╔═╡ 5685722b-2afd-4a9c-b2fa-74161251c463
+function S_oracle_current_data(
+	data::DataFrame,
+	posterior_samples::DataFrame,
+	n_runs::Int
+)
+	S, lo, hi = zeros(n_runs), zeros(n_runs), zeros(n_runs)
+	for r = 1:n_runs
+		# sample data at current cs
+		oracle_data, θ = sample_from_oracle(
+			data, posterior_samples, data[3:end, "[S] (mol/m³)"]
+		)
+		
+		S[r], lo[r], hi[r] = compute_S_lo_hi(
+			oracle_data, posterior_samples, 5000
+		)
+	end
+	return S, lo, hi
+end
+
+# ╔═╡ aa7c678b-384d-42d1-a1dd-7037bf02ebd6
+begin
+	current_oracle_filename = "data/Slohi_oracle_current.jld2"
+	if ! isfile(current_oracle_filename)
+		S_o_current, lo_o_current, hi_o_current = S_oracle_current_data(
+			data, posterior_samples, n_oracle_runs
+		)
+
+		jldsave(current_oracle_filename; S_o_current, lo_o_current, hi_o_current)
+	else
+		S_o_current = load(current_oracle_filename)["S_o_current"]
+	end
+end
+
 # ╔═╡ 88d84b3d-dae5-4aef-b736-8a8372562867
 begin
 	local fig = Figure()
 	local ax  = Axis(
 		fig[1, 1], 
 		xlabel="iteration",
-		ylabel="CMC entropy\n[nats]", 
+		ylabel="entropy of CMC posterior\n[nats]", 
 		xticks=0:maximum(oracle_info_dynamics[:, "iteration"]),
 		xticklabelrotation=π/2
 	)
@@ -1357,13 +1396,24 @@ begin
 	local σ_S = [std(s)  for s in oracle_info_dynamics[:, "entropy c★"]]
 	scatterlines!(
 		oracle_info_dynamics[:, "iteration"], μ_S, marker=:rect,
-		markersize=15, color=colors[4], label="uniform design"
+		markersize=15, color=colors[4], label="uniform design (oracle)"
 	)
 	errorbars!(
 		oracle_info_dynamics[:, "iteration"], μ_S, σ_S,
 		color=colors[4]
 	)
 
+	# with current data
+	errorbars!(
+		[info_dynamics[end, "iteration"]], [mean(S_o_current)], [std(S_o_current)],
+		color=colors[4]
+	)
+	scatterlines!(
+		[info_dynamics[end, "iteration"]],
+		[mean(S_o_current)], 
+		markersize=15, color="white", strokewidth=3, strokecolor=colors[4], marker=:rect, label="BED (oracle)"
+	)
+	
 	hlines!(
 		info_dynamics[end, "entropy c★"], linestyle=:dash, linewidth=1, color="gray"
 	)
@@ -1373,14 +1423,19 @@ begin
 		info_dynamics[:, "iteration"], info_dynamics[:, "entropy c★"],
 		markersize=15, color=colors[5], label="BED"
 	)
+	axislegend()
+	save("figs/entropy_" * surfactant * ".pdf", fig)
 	fig
 end
 
-# ╔═╡ 4a7e282c-87f3-493e-b27c-e971d6ce6075
-data[3:end, "[S] (mol/m³)"]
-
 # ╔═╡ 2cc5bd71-ca6b-4a4e-b814-9d5e1717d8b9
-
+begin
+	# test with current cs
+	local oracle_data, θ = sample_from_oracle(
+		data, posterior_samples, data[3:end, "[S] (mol/m³)"]
+	)
+	viz_oracle_data(oracle_data, θ)
+end
 
 # ╔═╡ Cell order:
 # ╠═cd47d8d0-5513-11f0-02cf-23409fc28fbf
@@ -1491,8 +1546,11 @@ data[3:end, "[S] (mol/m³)"]
 # ╟─5f920441-a7ae-4dcd-8e11-cf8b16c20f7a
 # ╠═baaa5a54-0877-44fa-aca5-1eace159caa7
 # ╠═84098824-8372-4091-a4a8-21e140c4e3c4
+# ╟─61b6c6df-7dcf-4d86-ad56-19cbe285607b
 # ╠═42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
 # ╟─94b20c1e-cd93-4d23-90f2-64467a49cd46
 # ╠═88d84b3d-dae5-4aef-b736-8a8372562867
-# ╠═4a7e282c-87f3-493e-b27c-e971d6ce6075
+# ╠═7569b873-faa3-431f-967e-94d2800f4d05
+# ╠═5685722b-2afd-4a9c-b2fa-74161251c463
+# ╠═aa7c678b-384d-42d1-a1dd-7037bf02ebd6
 # ╠═2cc5bd71-ca6b-4a4e-b814-9d5e1717d8b9
