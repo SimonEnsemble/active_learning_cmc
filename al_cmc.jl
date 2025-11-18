@@ -52,8 +52,8 @@ function draw_axes!(ax)
 end
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-surfactant = "Triton-X-100"
-# surfactant = "OTG"
+# surfactant = "Triton-X-100"
+surfactant = "OTG"
 
 # ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 md"figure saving convention"
@@ -957,11 +957,11 @@ function viz_acquisition_dynamics(
 	σ_S = [std(s)  for s in oracle_info_dynamics[:, "entropy c★"]]
 	scatterlines!(
 		ax_t, oracle_info_dynamics[:, "iteration"], μ_S, marker=:rect,
-		markersize=15, color=colors[4], label="uniform design"
+		markersize=15, color="gray", label="uniform design (oracle)"
 	)
 	errorbars!(
 		ax_t, oracle_info_dynamics[:, "iteration"], μ_S, σ_S,
-		color=colors[4]
+		color="gray"
 	)
 
 	# BED
@@ -1396,22 +1396,22 @@ begin
 	local σ_S = [std(s)  for s in oracle_info_dynamics[:, "entropy c★"]]
 	scatterlines!(
 		oracle_info_dynamics[:, "iteration"], μ_S, marker=:rect,
-		markersize=15, color=colors[4], label="uniform design (oracle)"
+		markersize=15, color="gray", label="uniform design (oracle)"
 	)
 	errorbars!(
 		oracle_info_dynamics[:, "iteration"], μ_S, σ_S,
-		color=colors[4]
+		color="gray"
 	)
 
 	# with current data
 	errorbars!(
 		[info_dynamics[end, "iteration"]], [mean(S_o_current)], [std(S_o_current)],
-		color=colors[4]
+		color="gray"
 	)
 	scatterlines!(
 		[info_dynamics[end, "iteration"]],
 		[mean(S_o_current)], 
-		markersize=15, color="white", strokewidth=3, strokecolor=colors[4], marker=:rect, label="BED (oracle)"
+		markersize=15, color="white", strokewidth=3, strokecolor="gray", marker=:rect, label="BED (oracle)"
 	)
 	
 	hlines!(
