@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.20
+# v0.20.21
 
 using Markdown
 using InteractiveUtils
@@ -20,6 +20,7 @@ end
 begin
 	import Pkg; Pkg.activate("cmc")
 	using CairoMakie, DataFrames, Turing, MakieThemes, Colors, CSV, StatsBase, KernelDensity, Cubature, Test, PlutoUI, Logging, ProgressLogging, Printf, Random, Optim, JLD2
+	# , NearestNeighbors, LogExpFunctions
 end
 
 # ╔═╡ 1e324846-70da-494c-bb88-8668a0f0e526
@@ -52,8 +53,8 @@ function draw_axes!(ax)
 end
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-# surfactant = "Triton-X-100"
-surfactant = "OTG"
+surfactant = "Triton-X-100"
+# surfactant = "OTG"
 
 # ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 md"figure saving convention"
@@ -728,7 +729,99 @@ end
 md"time a single run"
 
 # ╔═╡ fc333a63-86f1-43d6-9f7e-1f43bd926caf
-# @time α_ig(1.0, data, posterior_samples, n_samples=3, n_MC_samples=4)
+# @time α_ig(4.0, data, posterior_samples, n_samples=250, n_MC_samples=250)
+
+# ╔═╡ 419be7db-1b23-49ee-bad5-b022cdc88c67
+# ╠═╡ disabled = true
+#=╠═╡
+@time nested_mc(4.0, posterior_samples)
+  ╠═╡ =#
+
+# ╔═╡ 5d0708a8-209f-44b6-b7de-e5c44aa768c4
+# ╠═╡ disabled = true
+#=╠═╡
+function sample_current_prior(posterior_samples)
+	i = sample(1:nrow(posterior_samples))
+	γ₀, a, K, c★ = posterior_samples[i, ["γ₀", "a", "K", "c★"]]
+	return γ₀, a, K, c★
+end
+  ╠═╡ =#
+
+# ╔═╡ 4297d03e-be4a-45bd-9b4f-4d56de923d8d
+# ╠═╡ disabled = true
+#=╠═╡
+# for nearest neighbor search
+nn_tree = KDTree(
+	reshape(posterior_samples[:, "c★"], (1, nrow(posterior_samples)))
+)
+  ╠═╡ =#
+
+# ╔═╡ 7df38336-5c4b-4bc6-968e-d03d3c06f4e7
+# ╠═╡ disabled = true
+#=╠═╡
+@time idxs, dists = knn(nn_tree, [8.2], 10)
+  ╠═╡ =#
+
+# ╔═╡ 2248e317-c8c7-4ab1-ad87-2fc238f25055
+#=╠═╡
+function sample_current_prior_conditional(
+	posterior_samples::DataFrame, c★::Float64, k::Int=100
+)
+	# to condition on c★, select all points nearest this c★
+	idxs, dists = knn(nn_tree, [c★], k)
+	i = sample(idxs)
+	γ₀, a, K, c★ = posterior_samples[i, ["γ₀", "a", "K", "c★"]]
+	return γ₀, a, K
+end
+  ╠═╡ =#
+
+# ╔═╡ ecceb628-9002-47ac-8e78-040bbf48b1cd
+# ╠═╡ disabled = true
+#=╠═╡
+sample_current_prior_conditional(posterior_samples, 8.0)
+  ╠═╡ =#
+
+# ╔═╡ 4b194890-6156-4850-a76a-4bfe708e2130
+# ╠═╡ disabled = true
+#=╠═╡
+# doesn't match cuz this looks at info gain for all.
+# gotta do the marginalization.
+function nested_mc(c, posterior_samples)
+	N = M = L = 5000
+	eig = 0.0
+	log_const = sqrt(2 * π * σ)
+	log_pyϕs = zeros(M)
+	log_pyxs = zeros(L)
+	for i = 1:N
+		# (θᵢ, yᵢ) samples
+		γ₀ᵢ, aᵢ, Kᵢ, c★ᵢ = sample_current_prior(posterior_samples)
+		
+		# sample surface tension measurement
+		γᵢ = γ_model(c, γ₀ᵢ, aᵢ, Kᵢ, c★ᵢ) + randn() * σ
+		
+		for j = 1:M
+			# sample nuissance params conditioned on c★
+			γ₀ᵢⱼ, aᵢⱼ, Kᵢⱼ = sample_current_prior_conditional(posterior_samples, c★ᵢ)
+			# calculate likelihood p(γᵢ | c★ᵢ, γ₀ᵢⱼ, aᵢⱼ, Kᵢⱼ)
+			γ̄ = γ_model(c, γ₀ᵢⱼ, aᵢⱼ, Kᵢⱼ, c★ᵢ)
+			z = (γᵢ - γ̄) / σ
+			log_pyϕs[j] = - 0.5 * z ^ 2
+		end
+		log_py_ϕ = logsumexp(log_pyϕs) - log(M)
+		
+		for k = 1:L
+			θ = sample_current_prior(posterior_samples)
+			γ̄ = γ_model(c, θ...)
+			z = (γᵢ - γ̄) / σ
+			log_pyxs[k] = - 0.5 * z ^ 2
+		end
+		log_pyx = logsumexp(log_pyxs) - log(L)
+		
+		eig += (log_py_ϕ - log_pyx)
+	end
+	return eig / N
+end
+  ╠═╡ =#
 
 # ╔═╡ 1b92732c-e918-41d1-b422-822794f850e5
 md"
@@ -922,7 +1015,7 @@ function entropy_dynamics(data::DataFrame)
 end
 
 # ╔═╡ 6d2ff265-8014-462e-982a-19bc1c19cef2
-if run_info_dynamics && iteration == nrow(_data)-2
+if run_info_dynamics && iteration == nrow(_data) - 2
 	info_dynamics_filename = surfactant * "_info_dynamics.jld2"
 	
 	if isfile(info_dynamics_filename)
@@ -1507,6 +1600,13 @@ end
 # ╠═f1ec7091-d47e-475d-885a-fcc96ceab663
 # ╟─e759e6f4-3366-4d94-93fc-1f6f5cb59e2b
 # ╠═fc333a63-86f1-43d6-9f7e-1f43bd926caf
+# ╠═419be7db-1b23-49ee-bad5-b022cdc88c67
+# ╠═5d0708a8-209f-44b6-b7de-e5c44aa768c4
+# ╠═4297d03e-be4a-45bd-9b4f-4d56de923d8d
+# ╠═7df38336-5c4b-4bc6-968e-d03d3c06f4e7
+# ╠═2248e317-c8c7-4ab1-ad87-2fc238f25055
+# ╠═ecceb628-9002-47ac-8e78-040bbf48b1cd
+# ╠═4b194890-6156-4850-a76a-4bfe708e2130
 # ╟─1b92732c-e918-41d1-b422-822794f850e5
 # ╠═48e51f57-3d7e-4096-b5c2-67a2244ba2e9
 # ╟─3dd13aca-090d-4ba4-8086-85c56f7d0065
