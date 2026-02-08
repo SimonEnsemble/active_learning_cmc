@@ -55,8 +55,8 @@ function draw_axes!(ax; exclude_x::Bool=false)
 end
 
 # ╔═╡ fe1e0cc3-59ee-4887-8c90-af2d40b81892
-surfactant = "Triton-X-100"
-# surfactant = "OTG"
+# surfactant = "Triton-X-100"
+surfactant = "OTG"
 
 # ╔═╡ ef9d74b4-63e9-4337-bf6c-3147e816ebd3
 md"figure saving convention"
@@ -343,7 +343,7 @@ end
 draw_convergence_diagnostics(posterior_samples, "γ₀")
 
 # ╔═╡ 6c255255-f3b4-4112-b06b-7583781eb69e
-draw_convergence_diagnostics(posterior_samples, "c★")
+draw_convergence_diagnostics(posterior_samples, "c★", save_the_fig=true)
 
 # ╔═╡ 9a3c24dc-3e90-4008-824e-5719bd74c1c5
 draw_convergence_diagnostics(posterior_samples, "K")
@@ -1048,18 +1048,30 @@ end
 function viz_acquisition_dynamics(
 	info_dynamics, c★_posterior_samples, oracle_info_dynamics=nothing
 )
-	fig = Figure(size=(450, 450))
+	fig = Figure(size=(450, 500))
 	
 	ax = Axis(
-		fig[1, 1], xlabel="iteration", 
+		fig[1, 1], xlabel="BED iteration", 
 		ylabel=rich("CMC [mol/m³]"), 
 		xticks=0:nrow(data),
 		yscale=surfactant == "OTG" ? identity : log10
 	)
 
 	ax_t = Axis(
-		fig[0, 1], ylabel="entropy of CMC\n[nats]", xticks=0:nrow(data)
+		fig[0, 1], 
+		ylabel="entropy of CMC\n[nats]", 
+		xticks=0:nrow(data)
 	)
+	ax_t2 = Axis(
+		fig[0, 1], 
+		xlabel="# of experiments", 
+		xticks=(0:nrow(data), ["$(i+2)" for i in 0:nrow(data)]),
+		xlabelcolor="gray", xticklabelcolor="gray",
+		xaxisposition=:top
+	)
+	hidespines!(ax_t2)
+	hideydecorations!(ax_t2)
+	linkaxes!(ax_t2, ax_t)
 	draw_axes!(ax_t, exclude_x=true)
 	draw_axes!(ax, exclude_x=surfactant == "Triton-X-100")
 	xlims!(ax_t, -0.1, nothing)
@@ -1071,7 +1083,7 @@ function viz_acquisition_dynamics(
 		σ_S = [std(s)  for s in oracle_info_dynamics[:, "entropy c★"]]
 		scatter!(
 			ax_t, oracle_info_dynamics[:, "iteration"], μ_S, marker=:rect,
-			markersize=15, color="gray", label="uniform design (oracle)"
+			markersize=15, color="gray", label="uniform ED\n(oracle data)"
 		)
 		errorbars!(
 			ax_t, oracle_info_dynamics[:, "iteration"], μ_S, σ_S,
@@ -1085,7 +1097,7 @@ function viz_acquisition_dynamics(
 		markersize=15, color=colors[5], label="BED"
 	)
 
-	axislegend(ax_t, position=:lb, labelsize=14)
+	axislegend(ax_t, position=:lb, labelsize=12)
 
 	linkxaxes!(ax, ax_t)
 	hidexdecorations!(ax_t, grid=false)
@@ -1094,14 +1106,14 @@ function viz_acquisition_dynamics(
 	hlines!(
 		ax, [surfactant == "OTG" ? mean([8.7, 9.3]) : mean([0.25, 0.45])], 
 		label="literature-reported CMC", 
-		color=colors[6], linestyle=:dash
+		color=colors[6], linestyle=:dot
 	)
 	violin!(
 		ax, c★_posterior_samples[:, "iteration"], c★_posterior_samples[:, "c★"],
 		side=:right, label="posterior density",
 		color=(thing_to_color["distn"], 0.1), strokewidth=3,
 		strokecolor=thing_to_color["distn"], 
-		boundary=surfactant == "OTG" ? (0, c_max) : (0.001, c_max),
+		# boundary=surfactant == "OTG" ? (0, c_max) : (0.001, c_max),
 		npoints=surfactant == "OTG" ? 250 : 10000
 	)
 
@@ -1115,7 +1127,7 @@ function viz_acquisition_dynamics(
 		)
 	end
 	
-	axislegend(ax, unique=true, labelsize=14)
+	axislegend(ax, unique=true, labelsize=12)
 	if surfactant == "OTG"
 		ylims!(ax, -0.5, nothing)
 	end
@@ -1126,15 +1138,6 @@ end
 
 # ╔═╡ 411ba75f-d3da-4d16-a373-6d1ed96e1e8c
 colors
-
-# ╔═╡ cf20b7c9-85bc-4f57-a74e-edcf77e3033d
-if run_info_dynamics
-	viz_acquisition_dynamics(
-		info_dynamics, c★_posterior_samples,
-		nothing
-		# filter(row -> row["iteration"] ≤ 7, oracle_info_dynamics)
-	)
-end
 
 # ╔═╡ f2f70823-5990-43a2-a31e-60de32cee6d3
 md"# into figure (traditional fitting routine with tons of data)"
@@ -1366,7 +1369,7 @@ function viz_oracle_data(
 	)
 		
 	if x_logscale
-		xlims!(10^(-4), 12)
+		xlims!(10^(-4), 15)
 	else
 		xlims!(-0.6, c_max + 0.6)
 	end
@@ -1456,7 +1459,7 @@ md"do oracle? $(@bind do_oracle CheckBox())"
 
 # ╔═╡ 42a3ca82-d403-4b52-8b4e-25ff4ae1b40e
 begin
-	n_oracle_runs = 15
+	n_oracle_runs = surfactant == "Triton-X-100" ? 15 : 10
 	
 	oracle_filename = joinpath(
 		"data",
@@ -1477,6 +1480,14 @@ begin
 	end
 	
 	oracle_info_dynamics
+end
+
+# ╔═╡ cf20b7c9-85bc-4f57-a74e-edcf77e3033d
+if run_info_dynamics && surfactant == "OTG"
+	viz_acquisition_dynamics(
+		info_dynamics, c★_posterior_samples,
+		filter(row -> row["iteration"] ≤ 7, oracle_info_dynamics)
+	)
 end
 
 # ╔═╡ 94b20c1e-cd93-4d23-90f2-64467a49cd46
@@ -1533,18 +1544,19 @@ begin
 	
 	local fig = Figure()
 	local ax_e = Axis(
-		fig[1, 1], xticklabelcolor="gray", xaxisposition=:top,
-		xticks=(xticks, ["$i" for i in xticks .+ 2]),
-		xlabel="# of experiments", xlabelcolor="gray"
+		fig[1, 1], 
+		xaxisposition=:top,
+		xticks=0:nrow(data)-2,
+		xlabel="BED iteration", xlabelcolor=colors[5], xticklabelcolor=colors[5]
 	)
 	local ax  = Axis(
 		fig[1, 1], 
-		xlabel="BED iteration",
+		xlabel="# of experiments",
 		ylabel="entropy of CMC posterior\n[nats]", 
-		xticks=0:nrow(data)-2,
+		xticks=(xticks, ["$i" for i in xticks .+ 2]),
 		xticklabelrotation=π/2,
-		xticklabelcolor=colors[5],
-		xlabelcolor=colors[5]
+		xticklabelcolor="gray",
+		xlabelcolor="gray"
 	)
 	linkaxes!(ax_e, ax)
 	hidespines!(ax_e)
@@ -1567,7 +1579,7 @@ begin
 	# with current data
 	errorbars!(
 		[info_dynamics[end, "iteration"]], [mean(S_o_current)], [std(S_o_current)],
-		color="gray"
+		color=colors[5]
 	)
 	scatterlines!(
 		[info_dynamics[end, "iteration"]],
