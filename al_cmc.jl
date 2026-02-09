@@ -969,9 +969,6 @@ if compute_α
 	println("stock solution needed: ", V_sample * picked_c / c_stock, " mL")
 end
 
-# ╔═╡ af720e58-c4ca-419b-b35f-da0e9c7ac1a6
-
-
 # ╔═╡ faef0439-9571-463a-adfa-714b6294d6c4
 md"# post-AL analysis:
 ## info dynamics
@@ -992,20 +989,25 @@ function entropy_dynamics(data::DataFrame)
 		"iteration" => Int[],
 		"c★" => Float64[]
 	)
-	
+
+	initial_params = [(;) for c = 1:n_chains]
 	for i = 0:nb_iters
 		#=
 		Bayesian inference with only this data
 		=#
 		model = cmc_model(data[1:(2+i), :])
 
-		chain = sample(model, NUTS(), MCMCThreads(), n_MC_samples, n_chains)
+		chain = sample(
+			model, NUTS(), MCMCThreads(), n_MC_samples, n_chains,
+			initial_params=initial_params
+		)
 		
 		if ! all(gelmandiag(chain)[:, :psrfci] .< 1.1)
 			println("chain not converged.")
 		end
 		
 		posterior_samples = DataFrame(chain)
+		initial_params = get_initial_params(posterior_samples) # warm start the next
 
 		# store
 		c★_posterior_samples = vcat(
@@ -1036,6 +1038,7 @@ if run_info_dynamics && iteration == nrow(_data) - 2
 	info_dynamics_filename = surfactant * "_info_dynamics.jld2"
 	
 	if isfile(info_dynamics_filename)
+		println("loading from $info_dynamics_filename")
 		info_dynamics = load(info_dynamics_filename, "info_dynamics")
 		c★_posterior_samples = load(info_dynamics_filename, "c★_posterior_samples")
 	else
@@ -1706,7 +1709,6 @@ end
 # ╠═c24c3e26-f940-4a8c-a88d-26a619415427
 # ╠═a6d7623e-350d-4e36-88db-89adf99043a9
 # ╠═e62a4099-9f49-4636-a828-76918a437170
-# ╠═af720e58-c4ca-419b-b35f-da0e9c7ac1a6
 # ╟─faef0439-9571-463a-adfa-714b6294d6c4
 # ╟─dd46e6a0-4cf3-4b19-9137-df7c9e86fc14
 # ╠═e0d9f20d-7d0a-48c2-b10c-f0c251280a66
