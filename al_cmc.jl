@@ -446,7 +446,7 @@ function viz(
 			ax_t, posterior_samples[:, "c★"], 
 			color=(thing_to_color["distn"], 0.1), strokewidth=3, 
 			strokecolor=thing_to_color["distn"], 
-			boundary=x_logscale ? (10^(-4), 12) : (0.0, c_max + 0.5),
+			boundary=x_logscale ? (10^(-4), 12) : (0.0, c_max + 0.75),
 			npoints=500
 		)
 
@@ -556,7 +556,7 @@ function viz(
 	if x_logscale
 		xlims!(10^(-4), 13)
 	else
-		xlims!(-0.6, c_max + 0.6)
+		xlims!(-0.8, c_max + 0.7)
 	end
 
 	savename = surfactant
