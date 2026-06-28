@@ -16,8 +16,8 @@ def _():
     import corner
     from aquarel import load_theme
 
-    theme = load_theme("umbra_light")
-    theme.set_font(size=16)
+    theme = load_theme("scientific")
+    theme.set_font(size=15)
     theme.apply()
     # ... plotting code here
     theme.apply_transforms()
@@ -27,6 +27,7 @@ def _():
 @app.cell
 def _(plt):
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    colors = ["#444444", "#de6757", "#EB9050", "#3262AB", "#FF8D7D", "#C8E370", "#C45B4D", "#41a65c", "#5E2C25"]
     colors
     return (colors,)
 
@@ -41,7 +42,7 @@ def _(mo):
 
 @app.cell
 def _():
-    n_data = 5
+    n_data = 4
     return (n_data,)
 
 
@@ -166,28 +167,33 @@ def _(data, log_like, pc, prior, sigma):
 
 @app.cell
 def _(data, thetas_posterior, viz_belief):
-    viz_belief(data, thetas_posterior)
+    viz_belief(data, thetas_posterior, show_cmc_hist=False)
     return
 
 
 @app.cell
-def _(colors, gamma, np, plt, random, s_next):
-    def viz_belief(data, thetas, n_samples=50):
-        fig, (ax_hist, ax_main) = plt.subplots(
-            2, 1, figsize=(6, 7),
-            gridspec_kw={"height_ratios": [1, 3]},
-            sharex=True
-        )
-    
-        # CMC hist
-        ax_hist.hist(
-            [theta[-1] for theta in thetas],
-            bins=20, color=colors[3],
-            histtype="step", edgecolor=colors[3],
-            lw=2
-        )
-        ax_hist.set_ylabel("# samples")
-        ax_hist.set_xlabel("CMC (mol/m$^3$)")
+def _(colors, gamma, n_data, np, plt, random, s_next):
+    def viz_belief(
+        data, thetas, n_samples=50, show_cmc_hist=True
+    ):
+        if show_cmc_hist:
+            fig, (ax_hist, ax_main) = plt.subplots(
+                2, 1, figsize=(6, 7),
+                gridspec_kw={"height_ratios": [1, 3]},
+                sharex=True
+            )
+        
+            # CMC hist
+            ax_hist.hist(
+                [theta[-1] for theta in thetas],
+                bins=20, color=colors[6],
+                histtype="step", edgecolor=colors[6],
+                lw=2
+            )
+            ax_hist.set_ylabel("# samples")
+            ax_hist.set_xlabel("CMC (mol/m$^3$)")
+        else:
+            fig, ax_main = plt.subplots(figsize=(6.4, 4.8))
 
         # main axis
         ax_main.set_xlabel("[surfactant] (mol/m$^3$)")
@@ -195,8 +201,8 @@ def _(colors, gamma, np, plt, random, s_next):
     
         ax_main.scatter(
             data["[S] (mol/m³)"], data["γ (N/m)"], 
-            clip_on=False, color=colors[0],
-            s=65, edgecolor="k", zorder=100,
+            clip_on=False, color=colors[5],
+            s=70, edgecolor="k", zorder=100,
             label="data"
         )
 
@@ -204,7 +210,7 @@ def _(colors, gamma, np, plt, random, s_next):
             ss = np.linspace(0, 30.0, 300)
             gs = [gamma(s, theta) for s in ss]
             ax_main.plot(
-                ss, gs, color=colors[1], alpha=0.3,  
+                ss, gs, color=colors[6], alpha=0.15,  
                 label="posterior sample" if i == 0 else None, lw=2
             )
 
@@ -212,12 +218,15 @@ def _(colors, gamma, np, plt, random, s_next):
 
         ax_main.annotate(
             "", xy=(s_next, 0.0), xytext=(s_next, 0.01),
-            arrowprops=dict(arrowstyle="->", color=colors[4], lw=2),
-            ha="center", color=colors[4]
+            arrowprops=dict(arrowstyle="->", color=colors[0], lw=2),
+            ha="center", color=colors[0]
         )
     
         ax_main.set_xlim(0, 30.0)
         ax_main.set_ylim(0, 0.08)
+
+        plt.tight_layout()
+        plt.savefig(f"posterior_model_{n_data}.pdf", format="pdf")
     
         plt.show()
 
@@ -225,12 +234,13 @@ def _(colors, gamma, np, plt, random, s_next):
 
 
 @app.cell
-def _(corner, plt, theta_names, thetas_posterior, weights):
+def _(corner, n_data, plt, theta_names, thetas_posterior, weights):
     fig = corner.corner(
         thetas_posterior, weights=weights, 
-        labels=theta_names, color='C3',
+        labels=theta_names, color='C6',
         smooth=3.0
     )
+    plt.savefig(f"posterior_distn_{n_data}.pdf", format="pdf")
     plt.show()
     return
 
