@@ -134,9 +134,9 @@ def _():
 def _(gamma, np):
     def log_like(theta, data, sigma):
         gamma_0, a, K, cmc = theta
-    
+
         gamma_preds = [gamma(c, theta) for c in data["[S] (mol/m³)"]]
-    
+
         diff = gamma_preds - data["γ (N/m)"].values
         return -0.5 * np.dot(diff, diff) / sigma**2.0
 
@@ -167,14 +167,14 @@ def _(data, log_like, pc, prior, sigma):
 
 @app.cell
 def _(data, thetas_posterior, viz_belief):
-    viz_belief(data, thetas_posterior, show_cmc_hist=False)
+    viz_belief(data, thetas_posterior, show_cmc_hist=False, n_samples=50, show_next_expt=False)
     return
 
 
 @app.cell
 def _(colors, gamma, n_data, np, plt, random, s_next):
     def viz_belief(
-        data, thetas, n_samples=50, show_cmc_hist=True
+        data, thetas, n_samples=50, show_cmc_hist=True, show_next_expt=True
     ):
         if show_cmc_hist:
             fig, (ax_hist, ax_main) = plt.subplots(
@@ -182,7 +182,7 @@ def _(colors, gamma, n_data, np, plt, random, s_next):
                 gridspec_kw={"height_ratios": [1, 3]},
                 sharex=True
             )
-        
+
             # CMC hist
             ax_hist.hist(
                 [theta[-1] for theta in thetas],
@@ -193,12 +193,12 @@ def _(colors, gamma, n_data, np, plt, random, s_next):
             ax_hist.set_ylabel("# samples")
             ax_hist.set_xlabel("CMC (mol/m$^3$)")
         else:
-            fig, ax_main = plt.subplots(figsize=(6.4, 4.8))
+            fig, ax_main = plt.subplots(figsize=(5.5, 4.1))
 
         # main axis
         ax_main.set_xlabel("[surfactant] (mol/m$^3$)")
         ax_main.set_ylabel("surface tension (N/m)")
-    
+
         ax_main.scatter(
             data["[S] (mol/m³)"], data["γ (N/m)"], 
             clip_on=False, color=colors[5],
@@ -216,18 +216,19 @@ def _(colors, gamma, n_data, np, plt, random, s_next):
 
         ax_main.legend()
 
-        ax_main.annotate(
-            "", xy=(s_next, 0.0), xytext=(s_next, 0.01),
-            arrowprops=dict(arrowstyle="->", color=colors[0], lw=2),
-            ha="center", color=colors[0]
-        )
-    
+        if show_next_expt:
+            ax_main.annotate(
+                "", xy=(s_next, 0.0), xytext=(s_next, 0.01),
+                arrowprops=dict(arrowstyle="->", color=colors[0], lw=2),
+                ha="center", color=colors[0]
+            )
+
         ax_main.set_xlim(0, 30.0)
         ax_main.set_ylim(0, 0.08)
 
         plt.tight_layout()
         plt.savefig(f"posterior_model_{n_data}.pdf", format="pdf")
-    
+
         plt.show()
 
     return (viz_belief,)
