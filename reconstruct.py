@@ -42,7 +42,7 @@ def _(mo):
 
 @app.cell
 def _():
-    n_data = 9
+    n_data = 2
     return (n_data,)
 
 
@@ -52,11 +52,12 @@ def _(n_data, pd):
         "[S] (mol/m³)": [0.0, 30.0, 3.0, 12.0, 7.5, 8.5, 0.75, 8.75, 13.25],
         "γ (N/m)": [71.87, 29.54, 44.2325, 29.68, 32.42, 31.06, 55.2075, 29.89333, 29.567]
     })
+    print(data.shape)
     data["γ (N/m)"] /= 1000.0
-    if n_data == 9:
+    if n_data in [9]:
         s_next = -1 
     else:
-        s_next = data.loc[n_data+1, "[S] (mol/m³)"]
+        s_next = data.loc[n_data, "[S] (mol/m³)"]
 
     data = data.head(n_data)
     data
@@ -171,7 +172,7 @@ def _(data, log_like, pc, prior, sigma):
 
 @app.cell
 def _(data, thetas_posterior, viz_belief):
-    viz_belief(data, thetas_posterior, show_cmc_hist=False, n_samples=0, show_next_expt=False)
+    viz_belief(data, thetas_posterior, show_cmc_hist=False, n_samples=50, show_next_expt=True)
     return
 
 
