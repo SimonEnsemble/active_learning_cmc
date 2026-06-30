@@ -42,7 +42,7 @@ def _(mo):
 
 @app.cell
 def _():
-    n_data = 4
+    n_data = 9
     return (n_data,)
 
 
@@ -53,7 +53,11 @@ def _(n_data, pd):
         "γ (N/m)": [71.87, 29.54, 44.2325, 29.68, 32.42, 31.06, 55.2075, 29.89333, 29.567]
     })
     data["γ (N/m)"] /= 1000.0
-    s_next = data.loc[n_data+1, "[S] (mol/m³)"]
+    if n_data == 9:
+        s_next = -1 
+    else:
+        s_next = data.loc[n_data+1, "[S] (mol/m³)"]
+
     data = data.head(n_data)
     data
     return data, s_next
@@ -167,7 +171,7 @@ def _(data, log_like, pc, prior, sigma):
 
 @app.cell
 def _(data, thetas_posterior, viz_belief):
-    viz_belief(data, thetas_posterior, show_cmc_hist=False, n_samples=50, show_next_expt=False)
+    viz_belief(data, thetas_posterior, show_cmc_hist=False, n_samples=0, show_next_expt=False)
     return
 
 
@@ -205,6 +209,25 @@ def _(colors, gamma, n_data, np, plt, random, s_next):
             s=70, edgecolor="k", zorder=100,
             label="data"
         )
+        for i, (x, y) in enumerate(zip(data["[S] (mol/m³)"], data["γ (N/m)"])):
+            xytext = (0, -12)
+            if i in [0, 2, 6]:
+                xytext = (8, 4)
+            if i in [1, 3, 4, 5, 8]:
+                xytext = (0, 9)
+            
+            if i in [0, 1]:
+                i = 0
+            else:
+                i = i - 1
+
+
+            ax_main.annotate(
+                str(i), (x, y),
+                textcoords="offset points", xytext=xytext,
+                fontsize=9, color="k", zorder=101,
+                ha="center", va="center",
+            )
 
         for i, theta in enumerate(random.sample(list(thetas), n_samples)):
             ss = np.linspace(0, 30.0, 300)
