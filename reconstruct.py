@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.10"
+__generated_with = "0.24.2"
 app = marimo.App()
 
 
@@ -100,29 +100,33 @@ def _(mo):
 
 @app.cell
 def _():
-    n_data = 2
+    n_data = 3
     return (n_data,)
 
 
 @app.cell
 def _(n_data, pd):
-    data = pd.DataFrame(
-        {
-            "[S] (mol/m³)": [
-                0.0, 30.0, 3.0, 12.0, 7.5, 8.5, 
-                0.75, 8.75, 13.25
-            ],
-            "γ (N/m)": [
-                71.87, 29.54, 44.2325, 29.68, 32.42, 31.06,
-                55.2075, 29.89333, 29.567
-            ]
-        }
-    )
-    data["γ (N/m)"] /= 1000.0
+    def get_data(n_data):
+        data = pd.DataFrame(
+            {
+                "[S] (mol/m³)": [
+                    0.0, 30.0, 3.0, 12.0, 7.5, 8.5, 
+                    0.75, 8.75, 13.25
+                ],
+                "γ (N/m)": [
+                    71.87, 29.54, 44.2325, 29.68, 32.42, 31.06,
+                    55.2075, 29.89333, 29.567
+                ]
+            }
+        )
+        data["γ (N/m)"] /= 1000.0
+    
+        data = data.head(n_data)
+        return data
 
-    data = data.head(n_data)
+    data = get_data(n_data)
     data
-    return (data,)
+    return data, get_data
 
 
 @app.cell(hide_code=True)
@@ -142,25 +146,34 @@ def _(gamma, np):
 
         diff = gamma_preds - data["γ (N/m)"].values
         n = len(diff)
-    
+
         return -0.5 * np.dot(diff, diff) / sigma**2 - n * np.log(sigma)
 
     return (log_like,)
 
 
 @app.cell
-def _(data, log_like, pc, prior, sigma):
-    sampler = pc.Sampler(
-        prior=prior,
-        likelihood=log_like,
-        likelihood_args=[data, sigma],
-        precondition=True
-    )
+def _(log_like, pc, prior):
+    def get_posterior(data, sigma):
+        sampler = pc.Sampler(
+            prior=prior,
+            likelihood=log_like,
+            likelihood_args=[data, sigma],
+            precondition=True
+        )
+    
+        # Run sampler
+        sampler.run()
+    
+        samples, weights, logl, logp = sampler.posterior()
+        return samples, weights, logl, logp
 
-    # Run sampler
-    sampler.run()
+    return (get_posterior,)
 
-    samples, weights, logl, logp = sampler.posterior()
+
+@app.cell
+def _(data, get_posterior, sigma):
+    samples, weights, logl, logp = get_posterior(data, sigma)
     return samples, weights
 
 
@@ -238,7 +251,7 @@ def _(draw_samples, gamma, gaussian_logpdf, logsumexp, np, sigma):
         gamma_inner = np.array(
             [gamma(c, theta) for theta in thetas_inner]
         )
-    
+
         # (N_outer, N_inner) matrix of log p(y_outer_i | theta_inner_j)
         logp_inner_matrix = gaussian_logpdf(
             gamma_obs_outer[:, None], gamma_inner[None, :], sigma
@@ -282,7 +295,8 @@ def _(mo):
 @app.cell
 def _(data, eig_data, samples, viz_belief, weights):
     viz_belief(
-        data, samples, weights, eig_data,
+        data, samples, weights, 
+        eig_data=eig_data,
         n_samples=25
     )
     return
@@ -291,15 +305,25 @@ def _(data, eig_data, samples, viz_belief, weights):
 @app.cell
 def _(colors, draw_samples, gamma, n_data, np, plt):
     def viz_belief(
-        data, samples, weights, eig_data,
-        n_samples=50, show_cmc_hist=True
+        data, samples, weights, 
+        eig_data=None,
+        data_hallucinated=None,
+        n_samples=50
     ):
-        fig, (ax_hist, ax_main, ax_eig) = plt.subplots(
-            3, 1, figsize=(6, 7),
-            gridspec_kw={"height_ratios": [1, 3, 1]},
-            sharex=True
-        )
-        ax_eig.set_xlabel("[surfactant] (mol/m$^3$)")
+        if eig_data is not None:
+            fig, (ax_hist, ax_main, ax_eig) = plt.subplots(
+                3, 1, figsize=(6, 7),
+                gridspec_kw={"height_ratios": [1, 3, 1]},
+                sharex=True
+            )
+            ax_eig.set_xlabel("[surfactant] (mol/m$^3$)")
+        else:
+            fig, (ax_hist, ax_main) = plt.subplots(
+                2, 1, figsize=(6, 7),
+                gridspec_kw={"height_ratios": [1, 3]},
+                sharex=True
+            )
+            ax_main.set_xlabel("[surfactant] (mol/m$^3$)")
 
         ###
         #   CMC hist
@@ -325,6 +349,15 @@ def _(colors, draw_samples, gamma, n_data, np, plt):
             s=70, edgecolor="k", zorder=100,
             label="data"
         )
+        if data_hallucinated is not None:
+            c, gamma_obs = data_hallucinated
+            ax_main.scatter(
+                c, gamma_obs, 
+                clip_on=False, color="white",
+                s=70, edgecolor="k", zorder=100,
+                label="data"
+            )
+        
         for i, (x, y) in enumerate(zip(data["[S] (mol/m³)"], data["γ (N/m)"])):
             xytext = (0, -12)
             if i in [0, 2, 6]:
@@ -336,7 +369,6 @@ def _(colors, draw_samples, gamma, n_data, np, plt):
                 i = 0
             else:
                 i = i - 1
-
 
             ax_main.annotate(
                 str(i), (x, y),
@@ -362,19 +394,20 @@ def _(colors, draw_samples, gamma, n_data, np, plt):
         ###
         #  EIG
         ###
-        ax_eig.set_ylabel("EIG")
-        ax_eig.set_ylim(ymin=0.0)
-        ax_eig.plot(
-            eig_data["c [mol/m3]"], eig_data["EIG"],
-            marker="s", color=colors[4], clip_on=False
-        )
+        if eig_data is not None:
+            ax_eig.set_ylabel("EIG")
+            ax_eig.set_ylim(ymin=0.0)
+            ax_eig.plot(
+                eig_data["c [mol/m3]"], eig_data["EIG"],
+                marker="s", color=colors[4], clip_on=False
+            )
     
-        c_next = eig_data.loc[eig_data["EIG"].argmax(), "c [mol/m3]"]
-        ax_main.annotate(
-            "", xy=(c_next, 0.0), xytext=(c_next, 0.01),
-            arrowprops=dict(arrowstyle="->", color=colors[0], lw=2),
-            ha="center", color=colors[0]
-        )
+            c_next = eig_data.loc[eig_data["EIG"].argmax(), "c [mol/m3]"]
+            ax_main.annotate(
+                "", xy=(c_next, 0.0), xytext=(c_next, 0.01),
+                arrowprops=dict(arrowstyle="->", color=colors[0], lw=2),
+                ha="center", color=colors[0]
+            )
 
         plt.tight_layout()
         plt.savefig(f"posterior_model_{n_data}.pdf", format="pdf")
@@ -382,6 +415,81 @@ def _(colors, draw_samples, gamma, n_data, np, plt):
         plt.show()
 
     return (viz_belief,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # ::streamline-emojis:crazy-face:: hallucinate data to illustrate IG
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    get posterior from all data. this is used as an oracle.
+    """)
+    return
+
+
+@app.cell
+def _(get_data, get_posterior, sigma):
+    data_all = get_data(9) # max = 9
+
+    samples_all, weights_all, _, _ = get_posterior(data_all, sigma)
+    return data_all, samples_all, weights_all
+
+
+@app.cell
+def _(data_all, samples_all, viz_belief, weights_all):
+    viz_belief(data_all, samples_all, weights_all)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    implement simulation-based oracle.
+    """)
+    return
+
+
+@app.cell
+def _(draw_samples, gamma, samples_all, weights_all):
+    def orcale_surface_tension(c, samples_all=samples_all, weights_all=weights_all):
+        theta = draw_samples(samples_all, weights_all, 1)[0]
+        gamma_obs = gamma(c, theta)
+        return gamma_obs
+
+    return (orcale_surface_tension,)
+
+
+@app.cell
+def _(data, orcale_surface_tension, samples, viz_belief, weights):
+    def hallucinate_next_expt(c, samples=samples, weights=weights):
+        gamma_obs = orcale_surface_tension(c)
+
+        viz_belief(data, samples, weights, data_hallucinated=[c, gamma_obs])
+
+    return (hallucinate_next_expt,)
+
+
+@app.cell
+def _(orcale_surface_tension):
+    orcale_surface_tension(1.0)
+    return
+
+
+@app.cell
+def _(hallucinate_next_expt):
+    hallucinate_next_expt(1.0)
+    return
+
+
+@app.cell
+def _():
+    return
 
 
 if __name__ == "__main__":
