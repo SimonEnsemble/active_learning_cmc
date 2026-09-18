@@ -9,7 +9,7 @@ def _():
     import numpy as np
     import matplotlib.pyplot as plt
     import pocomc as pc
-    from scipy.stats import norm, uniform
+    from scipy.stats import norm, uniform, gaussian_kde
     import pandas as pd
     import marimo as mo
     import random
@@ -20,7 +20,7 @@ def _():
     theme = load_theme("scientific")
     theme.set_font(size=15)
     theme.apply()
-    return corner, logsumexp, mo, norm, np, pc, pd, plt, uniform
+    return corner, gaussian_kde, logsumexp, mo, norm, np, pc, pd, plt, uniform
 
 
 @app.cell
@@ -78,7 +78,7 @@ def _(norm, pc, uniform):
             norm(loc=72.8/1000.0, scale=0.01), # gamma_0 [N/m]
             uniform(0.001, 0.1),                # a [N/m]
             uniform(0.01, 10000.0),             # K [m3 / mol]
-            uniform(0.0, 30.0),                 # cmc [N/m]
+            uniform(0.0, 30.0),                 # cmc [m3/mol]
         ]
     )
     return (prior,)
@@ -100,7 +100,7 @@ def _(mo):
 
 @app.cell
 def _():
-    n_data = 3
+    n_data = 4
     return (n_data,)
 
 
@@ -126,7 +126,7 @@ def _(n_data, pd):
 
     data = get_data(n_data)
     data
-    return data, get_data
+    return (data,)
 
 
 @app.cell(hide_code=True)
@@ -181,7 +181,7 @@ def _(data, get_posterior, sigma):
 def _(np):
     def draw_samples(samples, weights, n):
         """
-        Draw n samples of (x_star, alpha) from the posterior,
+        Draw n samples of from the posterior,
         using pocoMC's importance weights.
         """
         idx = np.random.choice(
@@ -198,6 +198,23 @@ def _(np):
 @app.cell
 def _(draw_samples, samples, weights):
     draw_samples(samples, weights, 2)
+    return
+
+
+@app.cell
+def _(gaussian_kde, np):
+    def entropy_cmc(samples, weights):
+        cmc_samples = samples[:, -1]
+        kde = gaussian_kde(cmc_samples, weights=weights)
+        S = -np.sum(weights * np.log(kde(cmc_samples)))
+        return S
+
+    return (entropy_cmc,)
+
+
+@app.cell
+def _(entropy_cmc, samples, weights):
+    entropy_cmc(samples, weights)
     return
 
 
@@ -293,22 +310,24 @@ def _(mo):
 
 
 @app.cell
-def _(data, eig_data, samples, viz_belief, weights):
+def _(data, eig_data, n_data, samples, viz_belief, weights):
     viz_belief(
         data, samples, weights, 
         eig_data=eig_data,
-        n_samples=25
+        n_samples=25,
+        savename=f"posterior_model_{n_data}"
     )
     return
 
 
 @app.cell
-def _(colors, draw_samples, gamma, n_data, np, plt):
+def _(colors, draw_samples, entropy_cmc, gamma, np, plt):
     def viz_belief(
         data, samples, weights, 
         eig_data=None,
         data_hallucinated=None,
-        n_samples=50
+        n_samples=50,
+        savename=None
     ):
         if eig_data is not None:
             fig, (ax_hist, ax_main, ax_eig) = plt.subplots(
@@ -329,14 +348,17 @@ def _(colors, draw_samples, gamma, n_data, np, plt):
         #   CMC hist
         ###
         thetas = draw_samples(samples, weights, len(weights))
+        cmcs = [theta[-1] for theta in thetas]
+        S = entropy_cmc(samples, weights)
         ax_hist.hist(
-            [theta[-1] for theta in thetas],
+            cmcs,
             bins=20, color=colors[0],
             histtype="step", edgecolor=colors[0],
             lw=2
         )
         ax_hist.set_ylabel("# samples")
         ax_hist.set_xlabel("CMC (mol/m$^3$)")
+        ax_hist.legend(title=f"entropy [nats]: {S:.1f}")
 
         ###
         #   surface tension isotherm
@@ -410,7 +432,8 @@ def _(colors, draw_samples, gamma, n_data, np, plt):
             )
 
         plt.tight_layout()
-        plt.savefig(f"posterior_model_{n_data}.pdf", format="pdf")
+        if savename is not None:
+            plt.savefig(savename + ".pdf", format="pdf")
 
         plt.show()
 
@@ -427,24 +450,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
-    get posterior from all data. this is used as an oracle.
-    """)
-    return
-
-
-@app.cell
-def _(get_data, get_posterior, sigma):
-    data_all = get_data(9) # max = 9
-
-    samples_all, weights_all, _, _ = get_posterior(data_all, sigma)
-    return data_all, samples_all, weights_all
-
-
-@app.cell
-def _(data_all, samples_all, viz_belief, weights_all):
-    viz_belief(data_all, samples_all, weights_all)
-    return
+    do_hallucination = mo.ui.checkbox(label="do hallucination?")
+    do_hallucination
+    return (do_hallucination,)
 
 
 @app.cell(hide_code=True)
@@ -456,23 +464,13 @@ def _(mo):
 
 
 @app.cell
-def _(draw_samples, gamma, samples_all, weights_all):
-    def orcale_surface_tension(c, samples_all=samples_all, weights_all=weights_all):
-        theta = draw_samples(samples_all, weights_all, 1)[0]
-        gamma_obs = gamma(c, theta)
+def _(draw_samples, gamma, np, samples, sigma, weights):
+    def orcale_surface_tension(c, samples=samples, weights=weights):
+        theta = draw_samples(samples, weights, 1)[0]
+        gamma_obs = gamma(c, theta) + np.random.randn() * sigma
         return gamma_obs
 
     return (orcale_surface_tension,)
-
-
-@app.cell
-def _(data, orcale_surface_tension, samples, viz_belief, weights):
-    def hallucinate_next_expt(c, samples=samples, weights=weights):
-        gamma_obs = orcale_surface_tension(c)
-
-        viz_belief(data, samples, weights, data_hallucinated=[c, gamma_obs])
-
-    return (hallucinate_next_expt,)
 
 
 @app.cell
@@ -482,13 +480,35 @@ def _(orcale_surface_tension):
 
 
 @app.cell
-def _(hallucinate_next_expt):
-    hallucinate_next_expt(1.0)
+def _(data, get_posterior, orcale_surface_tension, sigma, viz_belief):
+    def hallucinate_next_expt(c):
+        # predict outcome of this experiment (stochastic)
+        gamma_obs = orcale_surface_tension(c)
+
+        # augment data set
+        data_new = data.copy()
+        data_new.loc[len(data)] = [c, gamma_obs]
+
+        # update the posterior
+        samples_new, weights_new, _, _ = get_posterior(data_new, sigma)
+
+        # viz updated belief
+        viz_belief(data, samples_new, weights_new, data_hallucinated=[c, gamma_obs])
+
+    return (hallucinate_next_expt,)
+
+
+@app.cell
+def _(do_hallucination, hallucinate_next_expt):
+    if do_hallucination.value:
+        hallucinate_next_expt(1.0)
     return
 
 
 @app.cell
-def _():
+def _(do_hallucination, hallucinate_next_expt):
+    if do_hallucination.value:
+        hallucinate_next_expt(20.0)
     return
 
 
