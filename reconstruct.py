@@ -100,7 +100,7 @@ def _(mo):
 
 @app.cell
 def _():
-    n_data = 4
+    n_data = 3
     return (n_data,)
 
 
@@ -205,7 +205,7 @@ def _(draw_samples, samples, weights):
 def _(gaussian_kde, np):
     def entropy_cmc(samples, weights):
         cmc_samples = samples[:, -1]
-        kde = gaussian_kde(cmc_samples, weights=weights)
+        kde = gaussian_kde(cmc_samples, weights=weights, bw_method=0.5)
         S = -np.sum(weights * np.log(kde(cmc_samples)))
         return S
 
@@ -480,10 +480,18 @@ def _(orcale_surface_tension):
 
 
 @app.cell
+def _(data):
+    data
+    return
+
+
+@app.cell
 def _(data, get_posterior, orcale_surface_tension, sigma, viz_belief):
-    def hallucinate_next_expt(c):
+    def hallucinate_next_expt(c, gamma_obs=None, savename=None):
         # predict outcome of this experiment (stochastic)
-        gamma_obs = orcale_surface_tension(c)
+        if gamma_obs is None:
+            gamma_obs = orcale_surface_tension(c)
+            print("gamma obs: ", gamma_obs)
 
         # augment data set
         data_new = data.copy()
@@ -493,7 +501,10 @@ def _(data, get_posterior, orcale_surface_tension, sigma, viz_belief):
         samples_new, weights_new, _, _ = get_posterior(data_new, sigma)
 
         # viz updated belief
-        viz_belief(data, samples_new, weights_new, data_hallucinated=[c, gamma_obs])
+        viz_belief(
+            data, samples_new, weights_new, data_hallucinated=[c, gamma_obs],
+            savename=savename
+        )
 
     return (hallucinate_next_expt,)
 
@@ -501,14 +512,19 @@ def _(data, get_posterior, orcale_surface_tension, sigma, viz_belief):
 @app.cell
 def _(do_hallucination, hallucinate_next_expt):
     if do_hallucination.value:
-        hallucinate_next_expt(1.0)
+        hallucinate_next_expt(12.0, gamma_obs=0.03, savename="good_choice")
     return
 
 
 @app.cell
 def _(do_hallucination, hallucinate_next_expt):
     if do_hallucination.value:
-        hallucinate_next_expt(20.0)
+        hallucinate_next_expt(0.75, gamma_obs=56/1000.0, savename="bad_choice")
+    return
+
+
+@app.cell
+def _():
     return
 
 
