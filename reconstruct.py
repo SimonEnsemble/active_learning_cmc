@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.24.2"
+__generated_with = "0.24.0"
 app = marimo.App()
 
 
@@ -11,6 +11,7 @@ def _():
     import pocomc as pc
     from scipy.stats import norm, uniform, gaussian_kde
     import pandas as pd
+    import scipy.stats
     import marimo as mo
     import random
     import corner
@@ -20,7 +21,19 @@ def _():
     theme = load_theme("scientific")
     theme.set_font(size=15)
     theme.apply()
-    return corner, gaussian_kde, logsumexp, mo, norm, np, pc, pd, plt, uniform
+    return (
+        corner,
+        gaussian_kde,
+        logsumexp,
+        mo,
+        norm,
+        np,
+        pc,
+        pd,
+        plt,
+        scipy,
+        uniform,
+    )
 
 
 @app.cell
@@ -120,7 +133,7 @@ def _(n_data, pd):
             }
         )
         data["γ (N/m)"] /= 1000.0
-    
+
         data = data.head(n_data)
         return data
 
@@ -161,10 +174,10 @@ def _(log_like, pc, prior):
             likelihood_args=[data, sigma],
             precondition=True
         )
-    
+
         # Run sampler
         sampler.run()
-    
+
         samples, weights, logl, logp = sampler.posterior()
         return samples, weights, logl, logp
 
@@ -379,7 +392,7 @@ def _(colors, draw_samples, entropy_cmc, gamma, np, plt):
                 s=70, edgecolor="k", zorder=100,
                 label="data"
             )
-        
+    
         for i, (x, y) in enumerate(zip(data["[S] (mol/m³)"], data["γ (N/m)"])):
             xytext = (0, -12)
             if i in [0, 2, 6]:
@@ -423,7 +436,7 @@ def _(colors, draw_samples, entropy_cmc, gamma, np, plt):
                 eig_data["c [mol/m3]"], eig_data["EIG"],
                 marker="s", color=colors[4], clip_on=False
             )
-    
+
             c_next = eig_data.loc[eig_data["EIG"].argmax(), "c [mol/m3]"]
             ax_main.annotate(
                 "", xy=(c_next, 0.0), xytext=(c_next, 0.01),
@@ -523,8 +536,36 @@ def _(do_hallucination, hallucinate_next_expt):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## a wrong prior
+    """)
+    return
+
+
 @app.cell
 def _():
+    true_cmc = 9.65 # mol/m3 mode
+    return (true_cmc,)
+
+
+@app.cell
+def _(np, plt, scipy, true_cmc):
+    cs = np.linspace(0.0, 100.0, 250)
+
+    plt.figure(figsize=(5, 3))
+    plt.plot(cs, scipy.stats.gamma.pdf(cs, a=10, scale=4), label=f"prior", lw=3)
+    plt.title("a wrong prior")
+    plt.xlabel("CMC [mol/m$^3$]")
+    plt.ylabel("density")
+    plt.yticks([])
+    plt.xlim(0, 100)
+    plt.axvline(true_cmc, color="k", label="true CMC", linestyle="--", lw=3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("bad_prior.pdf", format="pdf")
+    plt.show()
     return
 
 
