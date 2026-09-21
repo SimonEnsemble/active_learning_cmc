@@ -390,7 +390,7 @@ def _(colors, draw_samples, entropy_cmc, gamma, np, plt):
                 c, gamma_obs, 
                 clip_on=False, color="white",
                 s=70, edgecolor="k", zorder=100,
-                label="data"
+                label="simulated data"
             )
     
         for i, (x, y) in enumerate(zip(data["[S] (mol/m³)"], data["γ (N/m)"])):
